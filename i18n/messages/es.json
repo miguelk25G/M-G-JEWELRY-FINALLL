@@ -1,0 +1,278 @@
+﻿{
+  "common": {
+    "brandName": "M&G Jewelry",
+    "tagline": "JoyerÃ­a de Diamantes de Lujo",
+    "loading": "Cargando...",
+    "error": "Algo saliÃ³ mal",
+    "success": "Â¡Ã‰xito!",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "view": "Ver",
+    "close": "Cerrar",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "sort": "Ordenar",
+    "all": "Todo",
+    "none": "Ninguno",
+    "yes": "SÃ­",
+    "no": "No",
+    "or": "o",
+    "and": "y"
+  },
+  "nav": {
+    "home": "Inicio",
+    "collections": "Colecciones",
+    "chains": "Cadenas",
+    "bracelets": "Pulseras",
+    "earrings": "Aretes",
+    "rings": "Anillos",
+    "necklaces": "Collares",
+    "bestSellers": "MÃ¡s Vendidos",
+    "newArrivals": "Nuevos",
+    "about": "Nosotros",
+    "whiteGlove": "Servicio White-Glove",
+    "education": "EducaciÃ³n",
+    "faq": "Preguntas Frecuentes",
+    "contact": "Contacto",
+    "cart": "Carrito",
+    "account": "Cuenta",
+    "search": "Buscar",
+    "vip": "Acceso VIP"
+  },
+  "hero": {
+    "headline": "Elegancia Atemporal, Creada para Ti",
+    "subheadline": "Descubre nuestra colecciÃ³n curada de joyerÃ­a de diamantes de lujo. Cada pieza cuenta una historia de artesanÃ­a excepcional y belleza perdurable.",
+    "shopBestSellers": "Ver MÃ¡s Vendidos",
+    "whiteGlove": "Servicio White-Glove â€” ObtÃ©n 3 Recomendaciones"
+  },
+  "featured": {
+    "title": "CategorÃ­as Destacadas",
+    "viewAll": "Ver Todo",
+    "chains": "Cadenas",
+    "chainsDesc": "Elegantes cadenas en oro y platino",
+    "bracelets": "Pulseras",
+    "braceletsDesc": "Piezas statement para cada ocasiÃ³n",
+    "earrings": "Aretes",
+    "earringsDesc": "De studs a colgantes, encuentra tu brillo"
+  },
+  "bestSellers": {
+    "title": "MÃ¡s Vendidos",
+    "subtitle": "Nuestras piezas mÃ¡s amadas"
+  },
+  "whiteGlove": {
+    "title": "Servicio White-Glove Personal de JoyerÃ­a",
+    "subtitle": "Â¿No estÃ¡s seguro quÃ© elegir? Deja que nuestros expertos te ayuden a encontrar la pieza perfecta.",
+    "step1Title": "CuÃ©ntanos Sobre Ti",
+    "step1Desc": "Comparte tus preferencias de estilo, presupuesto y la ocasiÃ³n.",
+    "step2Title": "Recibe Recomendaciones",
+    "step2Desc": "Recibe 3 recomendaciones personalizadas en 24 horas.",
+    "step3Title": "Ama Tu ElecciÃ³n",
+    "step3Desc": "Compra con confianza y disfruta nuestra garantÃ­a de satisfacciÃ³n.",
+    "cta": "Iniciar Consulta",
+    "formTitle": "Encuentra Tu Estilo en 60 Segundos",
+    "style": "Tu Estilo",
+    "stylePlaceholder": "ClÃ¡sico, Moderno, Minimalista, Audaz...",
+    "budget": "Rango de Presupuesto",
+    "budgetPlaceholder": "Selecciona tu presupuesto",
+    "metal": "Metal Preferido",
+    "metalPlaceholder": "Oro, Plata, Platino...",
+    "recipient": "Â¿Para quiÃ©n es?",
+    "recipientPlaceholder": "Para mÃ­, Pareja, Regalo...",
+    "occasion": "OcasiÃ³n",
+    "occasionPlaceholder": "CumpleaÃ±os, Aniversario, Sin razÃ³n...",
+    "deadline": "Â¿CuÃ¡ndo lo necesitas?",
+    "message": "Detalles Adicionales",
+    "messagePlaceholder": "Cualquier preferencia o requisito especÃ­fico...",
+    "submit": "Obtener Mis Recomendaciones",
+    "successTitle": "Â¡Gracias!",
+    "successMessage": "Hemos recibido tus preferencias. Nuestro equipo de concierge te enviarÃ¡ 3 recomendaciones personalizadas en 24 horas."
+  },
+  "education": {
+    "title": "EducaciÃ³n sobre JoyerÃ­a",
+    "subtitle": "Aprende sobre calidad, cuidado y toma decisiones informadas",
+    "chainLengths": "GuÃ­a de Largos de Cadena",
+    "chainLengthsDesc": "Encuentra el largo perfecto para cualquier escote",
+    "karatGuide": "Oro 10K vs 14K vs 18K",
+    "karatGuideDesc": "Entendiendo la pureza y durabilidad del oro",
+    "labVsNatural": "Diamantes de Laboratorio vs Naturales",
+    "labVsNaturalDesc": "Toma una decisiÃ³n informada",
+    "careGuide": "GuÃ­a de Cuidado de Joyas",
+    "careGuideDesc": "MantÃ©n tus piezas brillantes por aÃ±os"
+  },
+  "trust": {
+    "title": "Compra con Confianza",
+    "authenticity": "100% AutÃ©ntico",
+    "authenticityDesc": "Cada pieza incluye certificado de autenticidad",
+    "shipping": "EnvÃ­o Seguro",
+    "shippingDesc": "Entrega asegurada hasta tu puerta",
+    "returns": "Devoluciones FÃ¡ciles",
+    "returnsDesc": "PolÃ­tica de devoluciÃ³n de 30 dÃ­as sin complicaciones"
+  },
+  "testimonials": {
+    "title": "Lo Que Dicen Nuestros Clientes"
+  },
+  "newsletter": {
+    "title": "Ãšnete a la Familia M&G",
+    "subtitle": "SuscrÃ­bete para ofertas exclusivas, nuevos productos y consejos de joyerÃ­a.",
+    "placeholder": "Ingresa tu email",
+    "submit": "Suscribirse",
+    "success": "Â¡Gracias por suscribirte!",
+    "privacy": "Respetamos tu privacidad. Cancela cuando quieras."
+  },
+  "footer": {
+    "shop": "Comprar",
+    "company": "CompaÃ±Ã­a",
+    "support": "Soporte",
+    "policies": "PolÃ­ticas",
+    "shipping": "EnvÃ­os",
+    "returns": "Devoluciones y Cambios",
+    "warranty": "GarantÃ­a",
+    "privacy": "PolÃ­tica de Privacidad",
+    "terms": "TÃ©rminos de Servicio",
+    "copyright": "Â© {year} M&G Jewelry. Todos los derechos reservados.",
+    "followUs": "SÃ­guenos"
+  },
+  "product": {
+    "addToCart": "Agregar al Carrito",
+    "askServicio White-Glove": "Preguntar al Servicio White-Glove",
+    "inStock": "En Stock",
+    "outOfStock": "Agotado",
+    "lowStock": "Solo quedan {count}",
+    "size": "TamaÃ±o",
+    "selectSize": "Seleccionar TamaÃ±o",
+    "metal": "Metal",
+    "karat": "Quilates",
+    "stone": "Piedra",
+    "weight": "Peso",
+    "length": "Largo",
+    "description": "DescripciÃ³n",
+    "specifications": "Especificaciones",
+    "shipping": "EnvÃ­o y Devoluciones",
+    "authenticity": "Autenticidad",
+    "care": "Instrucciones de Cuidado",
+    "reviews": "ReseÃ±as",
+    "relatedProducts": "TambiÃ©n Te Puede Gustar",
+    "addedToCart": "Â¡Agregado al carrito!",
+    "viewCart": "Ver Carrito"
+  },
+  "cart": {
+    "title": "Tu Carrito",
+    "empty": "Tu carrito estÃ¡ vacÃ­o",
+    "emptyMessage": "Parece que aÃºn no has agregado ningÃºn artÃ­culo.",
+    "continueShopping": "Continuar Comprando",
+    "remove": "Eliminar",
+    "quantity": "Cantidad",
+    "subtotal": "Subtotal",
+    "shipping": "EnvÃ­o",
+    "shippingCalculated": "Calculado en checkout",
+    "tax": "Impuesto",
+    "total": "Total",
+    "checkout": "Proceder al Pago",
+    "goToCart": "Ir al Carrito"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "contact": "InformaciÃ³n de Contacto",
+    "shipping": "DirecciÃ³n de EnvÃ­o",
+    "payment": "Pago",
+    "review": "Revisar Orden",
+    "placeOrder": "Realizar Pedido",
+    "processing": "Procesando..."
+  },
+  "search": {
+    "title": "Buscar",
+    "placeholder": "Buscar joyerÃ­a...",
+    "noResults": "Sin resultados",
+    "noResultsMessage": "Intenta ajustar tu bÃºsqueda o filtros",
+    "results": "{count} resultados",
+    "filters": "Filtros",
+    "clearFilters": "Limpiar Todo",
+    "category": "CategorÃ­a",
+    "priceRange": "Rango de Precio",
+    "metal": "Tipo de Metal",
+    "stone": "Tipo de Piedra",
+    "sortBy": "Ordenar Por",
+    "sortOptions": {
+      "featured": "Destacados",
+      "newest": "MÃ¡s Nuevos",
+      "priceAsc": "Precio: Menor a Mayor",
+      "priceDesc": "Precio: Mayor a Menor",
+      "nameAsc": "Nombre: A a Z"
+    }
+  },
+  "favorites": {
+    "title": "Mis Favoritos",
+    "empty": "Sin favoritos aÃºn",
+    "emptyMessage": "Guarda artÃ­culos que te gusten haciendo clic en el Ã­cono de corazÃ³n"
+  },
+  "contact": {
+    "title": "ContÃ¡ctanos",
+    "subtitle": "Nos encantarÃ­a saber de ti",
+    "form": {
+      "name": "Nombre",
+      "namePlaceholder": "Tu nombre",
+      "email": "Email",
+      "emailPlaceholder": "tu@email.com",
+      "phone": "TelÃ©fono (opcional)",
+      "phonePlaceholder": "+1 (555) 000-0000",
+      "reason": "Motivo de Contacto",
+      "reasonPlaceholder": "Selecciona un motivo",
+      "reasons": {
+        "order": "Consulta de Pedido",
+        "whiteGlove": "Servicio Servicio White-Glove",
+        "wholesale": "Consulta Mayorista",
+        "other": "Otro"
+      },
+      "message": "Mensaje",
+      "messagePlaceholder": "Â¿CÃ³mo podemos ayudarte?",
+      "submit": "Enviar Mensaje",
+      "success": "Â¡Mensaje enviado! Te responderemos pronto.",
+      "error": "Error al enviar mensaje. Por favor intenta de nuevo."
+    },
+    "info": {
+      "title": "Ponte en Contacto",
+      "email": "Email",
+      "phone": "TelÃ©fono",
+      "whatsapp": "WhatsApp",
+      "hours": "Horario de AtenciÃ³n",
+      "hoursValue": "Lun-Vie: 9AM - 6PM EST"
+    }
+  },
+  "about": {
+    "title": "Sobre M&G Jewelry",
+    "subtitle": "Creando SueÃ±os Desde 2010",
+    "story": "Nuestra Historia",
+    "mission": "Nuestra MisiÃ³n",
+    "values": "Nuestros Valores"
+  },
+  "vip": {
+    "title": "Acceso VIP",
+    "subtitle": "Beneficios exclusivos para nuestros clientes mÃ¡s valiosos",
+    "benefits": {
+      "earlyAccess": "Acceso anticipado a nuevas colecciones",
+      "exclusiveOffers": "Descuentos exclusivos para miembros",
+      "personalStylist": "Estilista personal de joyerÃ­a",
+      "freeShipping": "EnvÃ­o express gratuito",
+      "birthdayGift": "Regalo especial de cumpleaÃ±os"
+    },
+    "cta": "Unirse a VIP",
+    "alreadyMember": "Â¿Ya eres miembro?"
+  },
+  "policies": {
+    "shipping": {
+      "title": "InformaciÃ³n de EnvÃ­o",
+      "subtitle": "Entrega rÃ¡pida y segura a todo el mundo"
+    },
+    "returns": {
+      "title": "Devoluciones y Cambios",
+      "subtitle": "Devoluciones sin complicaciones en 30 dÃ­as"
+    },
+    "warranty": {
+      "title": "GarantÃ­a",
+      "subtitle": "Nuestro compromiso con la calidad"
+    }
+  }
+}
+

@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  name         String
+  nameEs       String?
+  slug         String   @unique
+  description  String
+  descriptionEs String?
+  price        Float
+  comparePrice Float?
+  currency     String   @default("USD")
+  metalType    String   // gold, silver, platinum
+  karat        String?  // 10k, 14k, 18k, 24k
+  stoneType    String   @default("none") // none, lab, natural
+  category     String   // chains, bracelets, earrings, rings, necklaces
+  images       String   // JSON array of image URLs
+  isFeatured   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  isBestSeller Boolean  @default(false)
+  inventoryQty Int      @default(0)
+  weight       Float?   // in grams
+  length       Float?   // in inches/cm
+  sizes        String?  // JSON array of available sizes
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orderItems   OrderItem[]
+  collections  CollectionProduct[]
+}
+
+model Collection {
+  id          String   @id @default(cuid())
+  name        String
+  nameEs      String?
+  slug        String   @unique
+  description String?
+  descriptionEs String?
+  image       String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products    CollectionProduct[]
+}
+
+model CollectionProduct {
+  id           String     @id @default(cuid())
+  collectionId String
+  productId    String
+  sortOrder    Int        @default(0)
+
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, productId])
+}
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  url       String
+  alt       String?
+  altEs     String?
+  width     Int?
+  height    Int?
+  mimeType  String?
+  size      Int?     // in bytes
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  orderNumber   String   @unique
+  customerName  String
+  email         String
+  phone         String?
+  shippingAddress String // JSON
+  billingAddress  String? // JSON
+  subtotal      Float
+  shipping      Float    @default(0)
+  tax           Float    @default(0)
+  discount      Float    @default(0)
+  total         Float
+  currency      String   @default("USD")
+  status        String   @default("pending") // pending, paid, processing, shipped, delivered, cancelled, refunded
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         OrderItem[]
+  transactions  Transaction[]
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  name      String
+  price     Float
+  quantity  Int
+  size      String?
+  options   String? // JSON for any custom options
+
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  orderId     String
+  provider    String   @default("stripe") // stripe, paypal, etc.
+  providerId  String   // stripe payment intent id, etc.
+  status      String   // pending, succeeded, failed, refunded
+  amount      Float
+  currency    String   @default("USD")
+  metadata    String?  // JSON
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model ContactSubmission {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  reason    String   // order, concierge, wholesale, other
+  message   String
+  productUrl String? // for concierge requests about specific products
+  metadata  String?  // JSON for concierge form data (style, budget, etc.)
+  status    String   @default("new") // new, in-progress, responded, closed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  role          String    @default("customer") // customer, admin
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model SiteSettings {
+  id              String  @id @default("main")
+  siteName        String  @default("M&G Jewelry")
+  siteNameEs      String? @default("M&G Jewelry")
+  tagline         String? @default("Luxury Diamond Jewelry")
+  taglineEs       String? @default("Joyería de Diamantes de Lujo")
+  contactEmail    String?
+  contactPhone    String?
+  whatsappNumber  String?
+  instagramUrl    String?
+  facebookUrl     String?
+  twitterUrl      String?
+  address         String?
+  addressEs       String?
+  defaultCurrency String  @default("USD")
+  defaultLocale   String  @default("en")
+  shippingInfo    String? // JSON
+  returnPolicy    String?
+  returnPolicyEs  String?
+  updatedAt       DateTime @updatedAt
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model QuizSubmission {
+  id               String   @id @default(cuid())
+  answers          String   // JSON containing Q1-Q10 answers
+  preferredContact String   // Instagram DM, WhatsApp, Phone, Email
+  createdAt        DateTime @default(now())
+}
+
+model VipWaitlist {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  phone            String?
+  igHandle         String?
+  preferredLanguage String  @default("en")
+  createdAt        DateTime @default(now())
+}

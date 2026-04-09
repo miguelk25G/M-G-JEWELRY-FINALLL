@@ -1,0 +1,97 @@
+﻿'use client'
+
+import Link from 'next/link'
+import Image from 'next/image'
+import { ArrowRight, Sparkles } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/i18n/locale-context'
+import { BrandConfig } from '@/lib/config/brand'
+
+export function HeroSection() {
+  const { t } = useTranslation()
+
+  return (
+    <section className="relative min-h-[90vh] overflow-hidden">
+      {/* Background Image */}
+      <div className="absolute inset-0">
+        <Image
+          src="https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=1920&q=90"
+          alt="Luxury diamond jewelry"
+          fill
+          className="object-cover"
+          priority
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/40" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
+        {BrandConfig.PATTERN_ENABLED && (
+          <div 
+            className="absolute inset-0 pointer-events-none" 
+            style={{
+              backgroundImage: 'url(/brand/pattern-mg.png)',
+              opacity: BrandConfig.PATTERN_OPACITY,
+              backgroundSize: '300px 300px',
+              backgroundRepeat: 'repeat'
+            }}
+          />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="relative mx-auto flex max-w-7xl flex-col items-start justify-center px-4 py-24 lg:min-h-[90vh] lg:px-8">
+        <div className="max-w-2xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/50 bg-secondary/50 px-4 py-2 backdrop-blur-sm">
+            <Sparkles className="h-4 w-4 text-accent" />
+            <span className="text-sm text-muted-foreground">
+              {t('common.tagline')}
+            </span>
+          </div>
+
+          <h1 className="font-serif text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+            {t('hero.headline')}
+          </h1>
+
+          <p className="mt-6 text-lg leading-relaxed text-muted-foreground lg:text-xl">
+            {t('hero.subheadline')}
+          </p>
+
+          <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+            <Button size="lg" className="gap-2 text-base" asChild>
+              <Link href="/collections/best-sellers">
+                {t('hero.shopBestSellers')}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="gap-2 text-base bg-transparent"
+              asChild
+            >
+              <Link href="/white-glove">
+                <Sparkles className="h-4 w-4" />
+                {t('hero.concierge')}
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="mt-16 grid grid-cols-3 gap-8 lg:mt-24">
+          <div>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">15+</p>
+            <p className="mt-1 text-sm text-muted-foreground">Years of Excellence</p>
+          </div>
+          <div>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">10K+</p>
+            <p className="mt-1 text-sm text-muted-foreground">Happy Customers</p>
+          </div>
+          <div>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">100%</p>
+            <p className="mt-1 text-sm text-muted-foreground">Certified Authentic</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+

@@ -1,0 +1,278 @@
+﻿{
+  "common": {
+    "brandName": "M&G Jewelry",
+    "tagline": "Luxury Diamond Jewelry",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "success": "Success!",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "close": "Close",
+    "search": "Search",
+    "filter": "Filter",
+    "sort": "Sort",
+    "all": "All",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "or": "or",
+    "and": "and"
+  },
+  "nav": {
+    "home": "Home",
+    "collections": "Collections",
+    "chains": "Chains",
+    "bracelets": "Bracelets",
+    "earrings": "Earrings",
+    "rings": "Rings",
+    "necklaces": "Necklaces",
+    "bestSellers": "Best Sellers",
+    "newArrivals": "New Arrivals",
+    "about": "About",
+    "whiteGlove": "White-Glove",
+    "education": "Education",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "cart": "Cart",
+    "account": "Account",
+    "search": "Search",
+    "vip": "VIP Access"
+  },
+  "hero": {
+    "headline": "Timeless Elegance, Crafted for You",
+    "subheadline": "Discover our curated collection of luxury diamond jewelry. Each piece tells a story of exceptional craftsmanship and enduring beauty.",
+    "shopBestSellers": "Shop Best Sellers",
+    "whiteGlove": "White-Glove â€” Get 3 Picks"
+  },
+  "featured": {
+    "title": "Featured Categories",
+    "viewAll": "View All",
+    "chains": "Chains",
+    "chainsDesc": "Elegant chains crafted in gold and platinum",
+    "bracelets": "Bracelets",
+    "braceletsDesc": "Statement pieces for every occasion",
+    "earrings": "Earrings",
+    "earringsDesc": "From studs to drops, find your sparkle"
+  },
+  "bestSellers": {
+    "title": "Best Sellers",
+    "subtitle": "Our most loved pieces"
+  },
+  "whiteGlove": {
+    "title": "Personal Jewelry White-Glove",
+    "subtitle": "Not sure what to choose? Let our experts help you find the perfect piece.",
+    "step1Title": "Tell Us About Yourself",
+    "step1Desc": "Share your style preferences, budget, and the occasion.",
+    "step2Title": "Get Expert Picks",
+    "step2Desc": "Receive 3 personalized recommendations within 24 hours.",
+    "step3Title": "Love Your Choice",
+    "step3Desc": "Shop with confidence and enjoy our satisfaction guarantee.",
+    "cta": "Start Your Consultation",
+    "formTitle": "60-Second Style Finder",
+    "style": "Your Style",
+    "stylePlaceholder": "Classic, Modern, Minimalist, Bold...",
+    "budget": "Budget Range",
+    "budgetPlaceholder": "Select your budget",
+    "metal": "Preferred Metal",
+    "metalPlaceholder": "Gold, Silver, Platinum...",
+    "recipient": "Who is it for?",
+    "recipientPlaceholder": "Myself, Partner, Gift...",
+    "occasion": "Occasion",
+    "occasionPlaceholder": "Birthday, Anniversary, Just Because...",
+    "deadline": "When do you need it?",
+    "message": "Additional Details",
+    "messagePlaceholder": "Any specific preferences or requirements...",
+    "submit": "Get My Recommendations",
+    "successTitle": "Thank You!",
+    "successMessage": "We've received your preferences. Our White-Glove team will send you 3 personalized picks within 24 hours."
+  },
+  "education": {
+    "title": "Jewelry Education",
+    "subtitle": "Learn about quality, care, and making informed choices",
+    "chainLengths": "Chain Length Guide",
+    "chainLengthsDesc": "Find the perfect length for any neckline",
+    "karatGuide": "10K vs 14K vs 18K Gold",
+    "karatGuideDesc": "Understanding gold purity and durability",
+    "labVsNatural": "Lab vs Natural Diamonds",
+    "labVsNaturalDesc": "Make an informed choice",
+    "careGuide": "Jewelry Care Guide",
+    "careGuideDesc": "Keep your pieces sparkling for years"
+  },
+  "trust": {
+    "title": "Shop With Confidence",
+    "authenticity": "100% Authentic",
+    "authenticityDesc": "Every piece comes with a certificate of authenticity",
+    "shipping": "Secure Shipping",
+    "shippingDesc": "Fully insured delivery to your doorstep",
+    "returns": "Easy Returns",
+    "returnsDesc": "30-day hassle-free return policy"
+  },
+  "testimonials": {
+    "title": "What Our Customers Say"
+  },
+  "newsletter": {
+    "title": "Join the M&G Family",
+    "subtitle": "Subscribe for exclusive offers, new arrivals, and jewelry tips.",
+    "placeholder": "Enter your email",
+    "submit": "Subscribe",
+    "success": "Thank you for subscribing!",
+    "privacy": "We respect your privacy. Unsubscribe anytime."
+  },
+  "footer": {
+    "shop": "Shop",
+    "company": "Company",
+    "support": "Support",
+    "policies": "Policies",
+    "shipping": "Shipping",
+    "returns": "Returns & Exchanges",
+    "warranty": "Warranty",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "copyright": "Â© {year} M&G Jewelry. All rights reserved.",
+    "followUs": "Follow Us"
+  },
+  "product": {
+    "addToCart": "Add to Cart",
+    "askWhite-Glove": "Ask White-Glove",
+    "inStock": "In Stock",
+    "outOfStock": "Out of Stock",
+    "lowStock": "Only {count} left",
+    "size": "Size",
+    "selectSize": "Select Size",
+    "metal": "Metal",
+    "karat": "Karat",
+    "stone": "Stone",
+    "weight": "Weight",
+    "length": "Length",
+    "description": "Description",
+    "specifications": "Specifications",
+    "shipping": "Shipping & Returns",
+    "authenticity": "Authenticity",
+    "care": "Care Instructions",
+    "reviews": "Reviews",
+    "relatedProducts": "You May Also Like",
+    "addedToCart": "Added to cart!",
+    "viewCart": "View Cart"
+  },
+  "cart": {
+    "title": "Your Cart",
+    "empty": "Your cart is empty",
+    "emptyMessage": "Looks like you haven't added any items yet.",
+    "continueShopping": "Continue Shopping",
+    "remove": "Remove",
+    "quantity": "Quantity",
+    "subtotal": "Subtotal",
+    "shipping": "Shipping",
+    "shippingCalculated": "Calculated at checkout",
+    "tax": "Tax",
+    "total": "Total",
+    "checkout": "Proceed to Checkout",
+    "goToCart": "Go to Cart"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "contact": "Contact Information",
+    "shipping": "Shipping Address",
+    "payment": "Payment",
+    "review": "Review Order",
+    "placeOrder": "Place Order",
+    "processing": "Processing..."
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Search for jewelry...",
+    "noResults": "No results found",
+    "noResultsMessage": "Try adjusting your search or filters",
+    "results": "{count} results",
+    "filters": "Filters",
+    "clearFilters": "Clear All",
+    "category": "Category",
+    "priceRange": "Price Range",
+    "metal": "Metal Type",
+    "stone": "Stone Type",
+    "sortBy": "Sort By",
+    "sortOptions": {
+      "featured": "Featured",
+      "newest": "Newest",
+      "priceAsc": "Price: Low to High",
+      "priceDesc": "Price: High to Low",
+      "nameAsc": "Name: A to Z"
+    }
+  },
+  "favorites": {
+    "title": "My Favorites",
+    "empty": "No favorites yet",
+    "emptyMessage": "Save items you love by clicking the heart icon"
+  },
+  "contact": {
+    "title": "Contact Us",
+    "subtitle": "We'd love to hear from you",
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Your name",
+      "email": "Email",
+      "emailPlaceholder": "your@email.com",
+      "phone": "Phone (optional)",
+      "phonePlaceholder": "+1 (555) 000-0000",
+      "reason": "Reason for Contact",
+      "reasonPlaceholder": "Select a reason",
+      "reasons": {
+        "order": "Order Inquiry",
+        "whiteGlove": "White-Glove Service",
+        "wholesale": "Wholesale Inquiry",
+        "other": "Other"
+      },
+      "message": "Message",
+      "messagePlaceholder": "How can we help you?",
+      "submit": "Send Message",
+      "success": "Message sent successfully! We'll get back to you soon.",
+      "error": "Failed to send message. Please try again."
+    },
+    "info": {
+      "title": "Get in Touch",
+      "email": "Email",
+      "phone": "Phone",
+      "whatsapp": "WhatsApp",
+      "hours": "Business Hours",
+      "hoursValue": "Mon-Fri: 9AM - 6PM EST"
+    }
+  },
+  "about": {
+    "title": "About M&G Jewelry",
+    "subtitle": "Crafting Dreams Since 2010",
+    "story": "Our Story",
+    "mission": "Our Mission",
+    "values": "Our Values"
+  },
+  "vip": {
+    "title": "VIP Access",
+    "subtitle": "Exclusive benefits for our most valued customers",
+    "benefits": {
+      "earlyAccess": "Early access to new collections",
+      "exclusiveOffers": "Members-only discounts",
+      "personalStylist": "Personal jewelry stylist",
+      "freeShipping": "Complimentary express shipping",
+      "birthdayGift": "Special birthday gift"
+    },
+    "cta": "Join VIP",
+    "alreadyMember": "Already a member?"
+  },
+  "policies": {
+    "shipping": {
+      "title": "Shipping Information",
+      "subtitle": "Fast, secure delivery worldwide"
+    },
+    "returns": {
+      "title": "Returns & Exchanges",
+      "subtitle": "30-day hassle-free returns"
+    },
+    "warranty": {
+      "title": "Warranty",
+      "subtitle": "Our commitment to quality"
+    }
+  }
+}
+
