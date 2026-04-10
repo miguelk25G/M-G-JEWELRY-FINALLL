@@ -61,6 +61,9 @@ export function CheckoutContent() {
       if (res.success) {
         clearCart()
         window.location.href = res.waLink
+      } else {
+        alert("Backend Database Error: " + res.error)
+        setIsProcessing(false)
       }
     } catch (err) {
       console.error(err)
