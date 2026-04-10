@@ -25,14 +25,17 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
     // Verify products exist and protect against ghost carts or deleted products
     const validProducts = await db.product.findMany({
       where: {
-        id: { in: cartItems.map(item => item.id) }
+        id: { in: cartItems.map(item => item.productId) }
       }
     })
 
-    const validCartItems = cartItems.filter(item => validProducts.some(p => p.id === item.id))
+    const validCartItems = cartItems.filter(item => validProducts.some(p => p.id === item.productId))
 
     if (validCartItems.length === 0) {
-      return { success: false, error: "Tus productos ya no se encuentran disponibles o la sesión expiró. Por favor limpia tu carrito y vuelve a seleccionarlos desde el inicio." }
+      return { 
+        success: false, 
+        error: `Tus productos ya no se encuentran disponibles o la sesión expiró. \nDebug INFO:\ncartItems passed: ${JSON.stringify(cartItems)}\nIDs searched: ${JSON.stringify(cartItems.map(i => i.productId))}\nFound in DB: ${JSON.stringify(validProducts)}` 
+      }
     }
 
     // Calculate cart total accurately 
@@ -72,7 +75,7 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
         shippingAddress: fullAddress,
         items: {
           create: validCartItems.map(item => ({
-            productId: item.id,
+            productId: item.productId,
             name: item.name,
             quantity: item.quantity,
             price: item.price,
