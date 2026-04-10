@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -68,7 +68,7 @@ const messages = [
 
 const typeColors: Record<string, string> = {
   Inquiry: "bg-blue-500/10 text-blue-500",
-  White-Glove: "bg-purple-500/10 text-purple-500",
+  "White-Glove": "bg-purple-500/10 text-purple-500",
   Support: "bg-green-500/10 text-green-500",
   Return: "bg-orange-500/10 text-orange-500",
 }
