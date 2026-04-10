@@ -131,14 +131,29 @@ export function CheckoutContent() {
                   </div>
                   <div className="sm:col-span-2">
                     <Label htmlFor="phone">WhatsApp Phone</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      type="tel"
-                      placeholder="+1 (555) 000-0000"
-                      className="mt-1.5 bg-secondary"
-                      required
-                    />
+                    <div className="mt-1.5 flex gap-2">
+                      <Select defaultValue="+1" name="phonePrefix">
+                        <SelectTrigger className="w-[100px] bg-secondary">
+                          <SelectValue placeholder="Code" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-background">
+                          <SelectItem value="+1">+1 (US/CA)</SelectItem>
+                          <SelectItem value="+44">+44 (UK)</SelectItem>
+                          <SelectItem value="+52">+52 (Mexico)</SelectItem>
+                          <SelectItem value="+34">+34 (Spain)</SelectItem>
+                          <SelectItem value="+506">+506 (Costa Rica)</SelectItem>
+                          <SelectItem value="+57">+57 (Colombia)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        id="phone"
+                        name="phoneDigits"
+                        type="tel"
+                        placeholder="(555) 000-0000"
+                        className="flex-1 bg-secondary"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -7,7 +7,9 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
   const firstName = formData.get("firstName") as string
   const lastName = formData.get("lastName") as string
   const email = formData.get("email") as string
-  const phone = formData.get("phone") as string
+  const phonePrefix = formData.get("phonePrefix") as string
+  const phoneDigits = formData.get("phoneDigits") as string
+  const phone = `${phonePrefix} ${phoneDigits}`
   const address = formData.get("address") as string
   const address2 = formData.get("address2") as string
   const city = formData.get("city") as string
@@ -46,11 +48,11 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
 
   const order = await db.order.create({
     data: {
-      userId: user.id,
       orderNumber: orderNumber,
       customerName: customerName,
       email: email,
       phone: phone,
+      subtotal,
       total,
       status: "pending_concierge",
       shippingAddress: fullAddress,
