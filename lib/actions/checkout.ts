@@ -42,15 +42,22 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
   }
 
   // Create Order
+  const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`
+
   const order = await db.order.create({
     data: {
       userId: user.id,
+      orderNumber: orderNumber,
+      customerName: customerName,
+      email: email,
+      phone: phone,
       total,
       status: "pending_concierge",
       shippingAddress: fullAddress,
       items: {
         create: cartItems.map(item => ({
           productId: item.id,
+          name: item.name,
           quantity: item.quantity,
           price: item.price,
           size: item.size || null
