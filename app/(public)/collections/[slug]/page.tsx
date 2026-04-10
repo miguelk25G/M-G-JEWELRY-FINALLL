@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { CollectionContent } from './collection-content'
+import { db } from '@/lib/db'
 
-// Mock collections data
+// Collections Metadata mapping
 const collections: Record<string, { name: string; nameEs: string; description: string; descriptionEs: string }> = {
   'best-sellers': {
     name: 'Best Sellers',
@@ -17,8 +18,8 @@ const collections: Record<string, { name: string; nameEs: string; description: s
     descriptionEs: 'Impresionantes anillos de diamantes para cada ocasión.',
   },
   chains: {
-    name: 'Gold Chains',
-    nameEs: 'Cadenas de Oro',
+    name: 'Chains',
+    nameEs: 'Cadenas',
     description: 'Classic and modern gold chains in various styles.',
     descriptionEs: 'Cadenas de oro clásicas y modernas en varios estilos.',
   },
@@ -40,101 +41,13 @@ const collections: Record<string, { name: string; nameEs: string; description: s
     description: 'Statement necklaces and delicate pendants.',
     descriptionEs: 'Collares statement y colgantes delicados.',
   },
+  rings: {
+    name: 'Rings',
+    nameEs: 'Anillos',
+    description: 'Beautiful rings crafted thoughtfully to stand out.',
+    descriptionEs: 'Hermosos anillos meticulosamente diseñados.',
+  }
 }
-
-// Mock products
-const mockProducts = [
-  {
-    id: '1',
-    name: '2.99 Carat Diamond Ring',
-    nameEs: 'Anillo de Diamante 2.99 Quilates',
-    slug: '2-99-carat-diamond-ring',
-    price: 10750,
-    comparePrice: 12500,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=800']),
-    category: 'rings',
-    metalType: 'gold',
-    karat: '14k',
-    stoneType: 'natural',
-    isBestSeller: true,
-    inventoryQty: 3,
-  },
-  {
-    id: '2',
-    name: '1.75 Carat Diamond Ring',
-    nameEs: 'Anillo de Diamante 1.75 Quilates',
-    slug: '1-75-carat-diamond-ring',
-    price: 9875,
-    comparePrice: null,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?w=800']),
-    category: 'rings',
-    metalType: 'gold',
-    karat: '18k',
-    stoneType: 'natural',
-    isBestSeller: true,
-    inventoryQty: 5,
-  },
-  {
-    id: '3',
-    name: 'Cuban Link Chain 14K',
-    nameEs: 'Cadena Eslabón Cubano 14K',
-    slug: 'cuban-link-chain-14k',
-    price: 4250,
-    comparePrice: 4800,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=800']),
-    category: 'chains',
-    metalType: 'gold',
-    karat: '14k',
-    stoneType: 'none',
-    isBestSeller: true,
-    inventoryQty: 10,
-  },
-  {
-    id: '4',
-    name: 'Diamond Tennis Bracelet',
-    nameEs: 'Pulsera Tenis de Diamantes',
-    slug: 'diamond-tennis-bracelet',
-    price: 8500,
-    comparePrice: null,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=800']),
-    category: 'bracelets',
-    metalType: 'gold',
-    karat: '18k',
-    stoneType: 'natural',
-    isBestSeller: false,
-    inventoryQty: 4,
-  },
-  {
-    id: '5',
-    name: 'Diamond Stud Earrings',
-    nameEs: 'Aretes de Diamante',
-    slug: 'diamond-stud-earrings',
-    price: 2450,
-    comparePrice: null,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=800']),
-    category: 'earrings',
-    metalType: 'gold',
-    karat: '14k',
-    stoneType: 'natural',
-    isBestSeller: true,
-    inventoryQty: 15,
-  },
-  {
-    id: '6',
-    name: 'Solitaire Diamond Necklace',
-    nameEs: 'Collar de Diamante Solitario',
-    slug: 'solitaire-diamond-necklace',
-    price: 3750,
-    comparePrice: null,
-    images: JSON.stringify(['https://images.unsplash.com/photo-1599643477877-530eb83abc8e?w=800']),
-    category: 'necklaces',
-    metalType: 'gold',
-    karat: '18k',
-    stoneType: 'natural',
-    isBestSeller: false,
-    inventoryQty: 6,
-  },
-]
 
 type Props = {
   params: Promise<{ slug: string }>
@@ -142,7 +55,7 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const collection = collections[slug]
+  const collection = collections[slug.toLowerCase()]
   
   if (!collection) {
     return {
@@ -158,26 +71,40 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function CollectionPage({ params }: Props) {
   const { slug } = await params
-  const collection = collections[slug]
-
-  if (!collection) {
-    notFound()
+  const collectionKey = slug.toLowerCase()
+  const collection = collections[collectionKey] || {
+     name: slug.charAt(0).toUpperCase() + slug.slice(1),
+     nameEs: slug.charAt(0).toUpperCase() + slug.slice(1),
+     description: "Explore our collection.",
+     descriptionEs: "Explora nuestra colección."
   }
 
-  // Filter products based on collection slug
-  let products = mockProducts
-  if (slug === 'best-sellers') {
-    products = mockProducts.filter((p) => p.isBestSeller)
-  } else if (slug === 'diamond-rings') {
-    products = mockProducts.filter((p) => p.category === 'rings')
-  } else if (slug !== 'best-sellers') {
-    products = mockProducts.filter((p) => p.category === slug)
+  let dbQuery = {}
+  
+  if (collectionKey === 'best-sellers') {
+    dbQuery = { isBestSeller: true, isActive: true }
+  } else if (collectionKey === 'diamond-rings') {
+    dbQuery = { category: { equals: 'rings', mode: 'insensitive' }, isActive: true }
+  } else {
+    dbQuery = { category: { equals: collectionKey, mode: 'insensitive' }, isActive: true }
   }
+
+  const dbProducts = await db.product.findMany({
+      where: dbQuery as any,
+      orderBy: { createdAt: 'desc' }
+  })
+
+  // Format products
+  const formattedProducts = dbProducts.map(p => ({
+     ...p,
+     nameEs: p.nameEs || p.name,
+     karat: p.karat || '',
+  }))
 
   return (
     <CollectionContent
       collection={collection}
-      products={products}
+      products={formattedProducts as any}
     />
   )
 }

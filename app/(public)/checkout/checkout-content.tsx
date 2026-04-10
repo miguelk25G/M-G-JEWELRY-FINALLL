@@ -1,11 +1,9 @@
 'use client'
 
-import React from "react"
-
-import { useState } from 'react'
+import React, { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft, Lock, CreditCard, ShoppingBag } from 'lucide-react'
+import { ArrowLeft, Send, ShieldCheck, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,10 +18,11 @@ import {
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { submitConciergeOrder } from '@/lib/actions/checkout'
 
 export function CheckoutContent() {
   const { t } = useTranslation()
-  const { items, subtotal } = useCartStore()
+  const { items, subtotal, clearCart } = useCartStore()
   const [isProcessing, setIsProcessing] = useState(false)
   const total = subtotal()
   const shipping = total > 500 ? 0 : 25
@@ -43,7 +42,7 @@ export function CheckoutContent() {
             </h1>
             <p className="mt-2 text-muted-foreground">Add some items to checkout</p>
             <Button className="mt-6" asChild>
-              <Link href="/collections">Continue Shopping</Link>
+              <Link href="/collections/rings">Continue Shopping</Link>
             </Button>
           </div>
         </div>
@@ -51,19 +50,23 @@ export function CheckoutContent() {
     )
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsProcessing(true)
     
-    // In production, this would create a Stripe checkout session
-    // and redirect to Stripe's hosted checkout page
-    
-    // Simulating API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    
-    // For demo purposes, just show an alert
-    alert('In production, this would redirect to Stripe Checkout. Payment integration requires Stripe API keys.')
-    setIsProcessing(false)
+    try {
+      const formData = new FormData(e.currentTarget)
+      const res = await submitConciergeOrder(formData, items)
+      
+      if (res.success) {
+        clearCart()
+        window.location.href = res.waLink
+      }
+    } catch (err) {
+      console.error(err)
+      alert("There was an error processing your request. Please try again.")
+      setIsProcessing(false)
+    }
   }
 
   return (
@@ -79,8 +82,11 @@ export function CheckoutContent() {
         </Link>
 
         <h1 className="mt-6 font-serif text-3xl font-bold text-foreground lg:text-4xl">
-          {t('checkout.title')}
+          Complete Your Request
         </h1>
+        <p className="mt-2 text-muted-foreground max-w-2xl">
+          By submitting this form, you will be connected directly via WhatsApp to our concierge jeweler to arrange secure payment and safe delivery logistics.
+        </p>
 
         <form onSubmit={handleSubmit}>
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
@@ -96,6 +102,7 @@ export function CheckoutContent() {
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
+                      name="email"
                       type="email"
                       placeholder="your@email.com"
                       className="mt-1.5 bg-secondary"
@@ -106,6 +113,7 @@ export function CheckoutContent() {
                     <Label htmlFor="firstName">First Name</Label>
                     <Input
                       id="firstName"
+                      name="firstName"
                       placeholder="John"
                       className="mt-1.5 bg-secondary"
                       required
@@ -115,18 +123,21 @@ export function CheckoutContent() {
                     <Label htmlFor="lastName">Last Name</Label>
                     <Input
                       id="lastName"
+                      name="lastName"
                       placeholder="Doe"
                       className="mt-1.5 bg-secondary"
                       required
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <Label htmlFor="phone">Phone</Label>
+                    <Label htmlFor="phone">WhatsApp Phone</Label>
                     <Input
                       id="phone"
+                      name="phone"
                       type="tel"
                       placeholder="+1 (555) 000-0000"
                       className="mt-1.5 bg-secondary"
+                      required
                     />
                   </div>
                 </div>
@@ -142,6 +153,7 @@ export function CheckoutContent() {
                     <Label htmlFor="address">Street Address</Label>
                     <Input
                       id="address"
+                      name="address"
                       placeholder="123 Main St"
                       className="mt-1.5 bg-secondary"
                       required
@@ -151,6 +163,7 @@ export function CheckoutContent() {
                     <Label htmlFor="address2">Apartment, suite, etc. (optional)</Label>
                     <Input
                       id="address2"
+                      name="address2"
                       placeholder="Apt 4B"
                       className="mt-1.5 bg-secondary"
                     />
@@ -159,6 +172,7 @@ export function CheckoutContent() {
                     <Label htmlFor="city">City</Label>
                     <Input
                       id="city"
+                      name="city"
                       placeholder="New York"
                       className="mt-1.5 bg-secondary"
                       required
@@ -166,22 +180,19 @@ export function CheckoutContent() {
                   </div>
                   <div>
                     <Label htmlFor="state">State</Label>
-                    <Select>
-                      <SelectTrigger className="mt-1.5 bg-secondary">
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-background">
-                        <SelectItem value="NY">New York</SelectItem>
-                        <SelectItem value="CA">California</SelectItem>
-                        <SelectItem value="TX">Texas</SelectItem>
-                        <SelectItem value="FL">Florida</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      id="state"
+                      name="state"
+                      placeholder="NY"
+                      className="mt-1.5 bg-secondary"
+                      required
+                    />
                   </div>
                   <div>
                     <Label htmlFor="zip">ZIP Code</Label>
                     <Input
                       id="zip"
+                      name="zip"
                       placeholder="10001"
                       className="mt-1.5 bg-secondary"
                       required
@@ -189,32 +200,34 @@ export function CheckoutContent() {
                   </div>
                   <div>
                     <Label htmlFor="country">Country</Label>
-                    <Select defaultValue="US">
+                    <Select defaultValue="US" name="country">
                       <SelectTrigger className="mt-1.5 bg-secondary">
                         <SelectValue placeholder="Select country" />
                       </SelectTrigger>
                       <SelectContent className="bg-background">
                         <SelectItem value="US">United States</SelectItem>
                         <SelectItem value="CA">Canada</SelectItem>
+                        <SelectItem value="UK">United Kingdom</SelectItem>
+                        <SelectItem value="CR">Costa Rica</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
               </div>
 
-              {/* Payment - Placeholder */}
+              {/* Payment Info */}
               <div className="rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
-                  {t('checkout.payment')}
+                  Secure White-Glove Payment
                 </h2>
                 <div className="mt-4 flex items-center gap-3 rounded-lg border border-border bg-secondary/50 p-4">
-                  <CreditCard className="h-6 w-6 text-muted-foreground" />
+                  <ShieldCheck className="h-6 w-6 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      Secure payment via Stripe
+                      Personalized Setup
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      You&apos;ll be redirected to complete payment
+                      You will finalize payment directly with the jeweler to ensure maximum security.
                     </p>
                   </div>
                 </div>
@@ -290,22 +303,21 @@ export function CheckoutContent() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="mt-6 w-full gap-2"
+                  className="mt-6 w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
                   disabled={isProcessing}
                 >
                   {isProcessing ? (
                     t('checkout.processing')
                   ) : (
                     <>
-                      <Lock className="h-4 w-4" />
-                      {t('checkout.placeOrder')}
+                      <Send className="h-4 w-4" />
+                      Submit & Contact Jeweler
                     </>
                   )}
                 </Button>
 
-                <p className="mt-4 flex items-center justify-center gap-1 text-center text-xs text-muted-foreground">
-                  <Lock className="h-3 w-3" />
-                  Secure checkout powered by Stripe
+                <p className="mt-4 flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
+                  Your order details will be sent via encrypted WhatsApp to our concierge team.
                 </p>
               </div>
             </div>
@@ -315,3 +327,4 @@ export function CheckoutContent() {
     </div>
   )
 }
+
