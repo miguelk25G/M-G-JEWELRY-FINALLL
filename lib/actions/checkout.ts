@@ -22,9 +22,22 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
     const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
     const customerName = `${firstName} ${lastName}`
 
+    // Verify products exist and protect against ghost carts or deleted products
+    const validProducts = await db.product.findMany({
+      where: {
+        id: { in: cartItems.map(item => item.id) }
+      }
+    })
+
+    const validCartItems = cartItems.filter(item => validProducts.some(p => p.id === item.id))
+
+    if (validCartItems.length === 0) {
+      return { success: false, error: "Tus productos ya no se encuentran disponibles o la sesión expiró. Por favor limpia tu carrito y vuelve a seleccionarlos desde el inicio." }
+    }
+
     // Calculate cart total accurately 
     let subtotal = 0
-    cartItems.forEach((item) => {
+    validCartItems.forEach((item) => {
       subtotal += item.price * item.quantity
     })
     
@@ -58,7 +71,7 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
         status: "pending_concierge",
         shippingAddress: fullAddress,
         items: {
-          create: cartItems.map(item => ({
+          create: validCartItems.map(item => ({
             productId: item.id,
             name: item.name,
             quantity: item.quantity,
@@ -77,7 +90,7 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
     waMessage += `*Phone:* ${phone}\n\n`
     waMessage += `*Items:*\n`
     
-    cartItems.forEach(item => {
+    validCartItems.forEach(item => {
       waMessage += `- ${item.quantity}x ${item.name} (${item.size || 'N/A'}) - $${item.price}\n`
     })
 
