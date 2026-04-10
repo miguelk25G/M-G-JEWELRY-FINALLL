@@ -42,9 +42,30 @@ const paymentColors: Record<string, string> = {
   Refunded: "bg-gray-500/10 text-gray-500",
 }
 
+import { toast } from "sonner"
+import { updateOrderStatus } from "@/lib/actions/admin-orders"
+
 export function OrdersClient({ orders }: { orders: any[] }) {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleStatusChange = async (orderId: string, newStatus: string) => {
+    setIsLoading(true)
+    const toastId = toast.loading(`Actualizando orden a ${newStatus}...`)
+    try {
+      const res = await updateOrderStatus(orderId, newStatus)
+      if (res.success) {
+        toast.success(`La orden fue marcada como ${newStatus}`, { id: toastId })
+      } else {
+        toast.error(`Error: ${res.error}`, { id: toastId })
+      }
+    } catch (e) {
+      toast.error("Ocurrió un error inesperado.", { id: toastId })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =
@@ -120,7 +141,7 @@ export function OrdersClient({ orders }: { orders: any[] }) {
               ) : null}
               {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
-                  <TableCell className="font-medium">{order.id}</TableCell>
+                  <TableCell className="font-medium">{order.orderNumber || order.id}</TableCell>
                   <TableCell>
                     <div>
                       <p>{order.customer}</p>
@@ -145,19 +166,15 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Shipped")}>
                           <Truck className="h-4 w-4 mr-2" />
                           Mark as Shipped
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Completed")}>
                           <CheckCircle className="h-4 w-4 mr-2" />
                           Mark as Completed
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-500">
+                        <DropdownMenuItem className="text-red-500" onClick={() => handleStatusChange(order.id, "Cancelled")}>
                           <XCircle className="h-4 w-4 mr-2" />
                           Cancel Order
                         </DropdownMenuItem>
@@ -173,3 +190,4 @@ export function OrdersClient({ orders }: { orders: any[] }) {
     </div>
   )
 }
+

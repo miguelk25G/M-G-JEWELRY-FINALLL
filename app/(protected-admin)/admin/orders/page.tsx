@@ -9,7 +9,8 @@ export default async function OrdersPage() {
 
   // Format Prisma data into the shape expected by the UI table
   const formattedOrders = dbOrders.map(order => ({
-    id: order.orderNumber,
+    id: order.id,
+    orderNumber: order.orderNumber,
     customer: order.customerName,
     email: order.email,
     phone: order.phone || "",
