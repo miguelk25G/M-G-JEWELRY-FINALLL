@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, MoreHorizontal, Eye, Truck, CheckCircle, XCircle } from "lucide-react"
+import { Search, MoreHorizontal, Eye, Truck, CheckCircle, XCircle, DollarSign } from "lucide-react"
 
 const statusColors: Record<string, string> = {
   Completed: "bg-green-500/10 text-green-500",
@@ -43,7 +43,7 @@ const paymentColors: Record<string, string> = {
 }
 
 import { toast } from "sonner"
-import { updateOrderStatus } from "@/lib/actions/admin-orders"
+import { updateOrderStatus, markOrderAsPaid } from "@/lib/actions/admin-orders"
 
 export function OrdersClient({ orders }: { orders: any[] }) {
   const [searchQuery, setSearchQuery] = useState("")
@@ -57,6 +57,23 @@ export function OrdersClient({ orders }: { orders: any[] }) {
       const res = await updateOrderStatus(orderId, newStatus)
       if (res.success) {
         toast.success(`La orden fue marcada como ${newStatus}`, { id: toastId })
+      } else {
+        toast.error(`Error: ${res.error}`, { id: toastId })
+      }
+    } catch (e) {
+      toast.error("Ocurrió un error inesperado.", { id: toastId })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handlePaymentPaid = async (orderId: string, amount: number) => {
+    setIsLoading(true)
+    const toastId = toast.loading(`Actualizando pago...`)
+    try {
+      const res = await markOrderAsPaid(orderId, amount)
+      if (res.success) {
+        toast.success(`El estado de pago fue actualizado a Pagado`, { id: toastId })
       } else {
         toast.error(`Error: ${res.error}`, { id: toastId })
       }
@@ -166,6 +183,10 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handlePaymentPaid(order.id, order.total)}>
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          Mark as Paid
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Shipped")}>
                           <Truck className="h-4 w-4 mr-2" />
                           Mark as Shipped

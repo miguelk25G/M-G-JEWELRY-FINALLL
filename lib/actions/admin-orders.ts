@@ -19,3 +19,23 @@ export async function updateOrderStatus(orderId: string, status: string) {
     return { success: false, error: String(error.message || error) }
   }
 }
+
+export async function markOrderAsPaid(orderId: string, amount: number) {
+  try {
+    await db.transaction.create({
+      data: {
+        orderId,
+        provider: "manual_concierge",
+        providerId: `MANUAL-${Date.now()}`,
+        status: "succeeded",
+        amount,
+      }
+    })
+    
+    revalidatePath("/admin/orders")
+    return { success: true }
+  } catch (error: any) {
+    console.error("Failed to mark as paid:", error)
+    return { success: false, error: String(error.message || error) }
+  }
+}

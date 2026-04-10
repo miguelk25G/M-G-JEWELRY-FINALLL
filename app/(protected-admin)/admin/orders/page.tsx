@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 export default async function OrdersPage() {
   const dbOrders = await db.order.findMany({
     orderBy: { createdAt: "desc" },
-    include: { items: true }
+    include: { items: true, transactions: true }
   })
 
   // Format Prisma data into the shape expected by the UI table
@@ -17,7 +17,7 @@ export default async function OrdersPage() {
     total: order.total,
     items: order.items.reduce((sum, item) => sum + item.quantity, 0),
     status: order.status === "pending_concierge" ? "Pending" : order.status,
-    payment: "Pending", // Concierge model implies payment is handled externally via WhatsApp
+    payment: order.transactions.some(t => t.status === "succeeded") ? "Paid" : "Pending",
     date: order.createdAt.toISOString().split("T")[0],
   }))
 
