@@ -79,7 +79,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "postcss": "^8.5",
-    "prisma": "^5.22.0",
+    "prisma": "latest",
     "tailwindcss": "^4.1.9",
     "tsx": "^4.19.2",
     "tw-animate-css": "1.3.3",
