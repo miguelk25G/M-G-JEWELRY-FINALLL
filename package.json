@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "prisma generate && prisma db push && next build",
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start"
@@ -41,6 +41,7 @@
     "@radix-ui/react-tooltip": "1.1.6",
     "@stripe/stripe-js": "^4.8.0",
     "@vercel/analytics": "latest",
+    "@vercel/blob": "latest",
     "autoprefixer": "^10.4.20",
     "bcryptjs": "latest",
     "class-variance-authority": "^0.7.1",
