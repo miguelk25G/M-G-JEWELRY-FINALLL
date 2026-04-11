@@ -273,6 +273,32 @@
       "title": "Warranty",
       "subtitle": "Our commitment to quality"
     }
+  },
+  "cartForm": {
+    "orderSummary": "Order Summary",
+    "secureCheckout": "Secure checkout powered by Stripe",
+    "completeRequest": "Complete Your Request",
+    "requestDesc": "By submitting this form, you will be connected directly via WhatsApp to our concierge jeweler to arrange secure payment and safe delivery logistics.",
+    "email": "Email",
+    "firstName": "First Name",
+    "lastName": "Last Name",
+    "phone": "WhatsApp Phone",
+    "street": "Street Address",
+    "apt": "Apartment, suite, etc. (optional)",
+    "city": "City",
+    "state": "State",
+    "zip": "ZIP Code",
+    "country": "Country",
+    "securePayment": "Secure White-Glove Payment",
+    "personalizedSetup": "Personalized Setup",
+    "personalizedDesc": "You will finalize payment directly with the jeweler to ensure maximum security.",
+    "discountCode": "Discount Code",
+    "applied": "Applied",
+    "apply": "Apply",
+    "remove": "Remove",
+    "discount": "Discount",
+    "free": "Free",
+    "submit": "Submit & Contact Jeweler"
   }
 }
 

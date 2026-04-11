@@ -9,8 +9,15 @@ export const metadata: Metadata = {
 }
 
 import { db } from '@/lib/db'
+import { cookies } from 'next/headers'
+import { getMessages } from '@/i18n/get-messages'
+import { defaultLocale, type Locale } from '@/i18n/config'
 
 export default async function CollectionsPage() {
+  const cookieStore = await cookies()
+  const locale = (cookieStore.get('locale')?.value || defaultLocale) as Locale
+  const messages = await getMessages(locale)
+
   const dbCollections = await db.collection.findMany({
     where: { isActive: true },
     orderBy: { sortOrder: 'asc' },
@@ -26,10 +33,10 @@ export default async function CollectionsPage() {
         {/* Header */}
         <div className="mx-auto max-w-2xl text-center">
           <h1 className="font-serif text-4xl font-bold text-foreground lg:text-5xl">
-            Collections
+            {messages.nav.collections}
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Explore our curated collections of luxury diamond jewelry
+            {locale === 'es' ? 'Explora nuestras colecciones curadas de joyería de lujo' : 'Explore our curated collections of luxury diamond jewelry'}
           </p>
         </div>
 
@@ -51,17 +58,17 @@ export default async function CollectionsPage() {
               <div className="absolute inset-0 bg-gradient-to-t from-background/95 via-background/40 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-6">
                 <h2 className="font-serif text-2xl font-semibold text-foreground">
-                  {collection.name}
+                  {locale === 'es' && collection.nameEs ? collection.nameEs : collection.name}
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {collection.description}
+                  {locale === 'es' && collection.descriptionEs ? collection.descriptionEs : collection.description}
                 </p>
                 <div className="mt-4 flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
-                    {collection._count.products} products
+                    {collection._count.products} {locale === 'es' ? 'piezas' : 'pieces'}
                   </span>
                   <span className="flex items-center gap-1 text-sm font-medium text-foreground">
-                    View Collection
+                    {locale === 'es' ? 'Ver Colección' : 'View Collection'}
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </span>
                 </div>

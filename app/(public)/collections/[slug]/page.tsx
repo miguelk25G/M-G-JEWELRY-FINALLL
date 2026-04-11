@@ -69,14 +69,39 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
+import { cookies } from 'next/headers'
+import { defaultLocale, type Locale } from '@/i18n/config'
+
 export default async function CollectionPage({ params }: Props) {
   const { slug } = await params
+  
+  const cookieStore = await cookies()
+  const locale = (cookieStore.get('locale')?.value || defaultLocale) as Locale
+
   const collectionKey = slug.toLowerCase()
-  const collection = collections[collectionKey] || {
-     name: slug.charAt(0).toUpperCase() + slug.slice(1),
-     nameEs: slug.charAt(0).toUpperCase() + slug.slice(1),
-     description: "Explore our collection.",
-     descriptionEs: "Explora nuestra colección."
+  
+  // Attempt to fetch from DB first
+  const dbCollection = await db.collection.findUnique({
+    where: { slug: collectionKey }
+  })
+  
+  // Fallback to static mock or generic
+  let collectionData = dbCollection
+  
+  if (!collectionData) {
+    collectionData = (collections[collectionKey] as any) || {
+       name: slug.charAt(0).toUpperCase() + slug.slice(1),
+       nameEs: slug.charAt(0).toUpperCase() + slug.slice(1),
+       description: "Explore our collection.",
+       descriptionEs: "Explora nuestra colección."
+    }
+  }
+
+  // Format collection response dynamically based on Locale
+  const finalCollectionInfo = {
+    name: locale === 'es' && collectionData.nameEs ? collectionData.nameEs : collectionData.name,
+    description: locale === 'es' && collectionData.descriptionEs ? collectionData.descriptionEs : collectionData.description,
+    image: collectionData.image
   }
 
   let dbQuery = {}
@@ -103,8 +128,9 @@ export default async function CollectionPage({ params }: Props) {
 
   return (
     <CollectionContent
-      collection={collection}
+      collection={finalCollectionInfo}
       products={formattedProducts as any}
+      locale={locale} // Explicitly pass the locale so client reads it accurately
     />
   )
 }

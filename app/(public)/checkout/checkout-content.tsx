@@ -78,11 +78,11 @@ export function CheckoutContent() {
               <ShoppingBag className="h-12 w-12 text-muted-foreground" />
             </div>
             <h1 className="mt-6 font-serif text-2xl font-bold text-foreground">
-              Your cart is empty
+              {t('cart.empty')}
             </h1>
-            <p className="mt-2 text-muted-foreground">Add some items to checkout</p>
+            <p className="mt-2 text-muted-foreground">{t('cart.emptyMessage')}</p>
             <Button className="mt-6" asChild>
-              <Link href="/collections">Continue Shopping</Link>
+              <Link href="/collections">{t('cart.continueShopping')}</Link>
             </Button>
           </div>
         </div>
@@ -124,14 +124,14 @@ export function CheckoutContent() {
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Cart
+          {t('cart.goToCart')}
         </Link>
 
         <h1 className="mt-6 font-serif text-3xl font-bold text-foreground lg:text-4xl">
-          Complete Your Request
+          {t('cartForm.completeRequest')}
         </h1>
         <p className="mt-2 text-muted-foreground max-w-2xl">
-          By submitting this form, you will be connected directly via WhatsApp to our concierge jeweler to arrange secure payment and safe delivery logistics.
+          {t('cartForm.requestDesc')}
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -143,7 +143,7 @@ export function CheckoutContent() {
                 </h2>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{t('cartForm.email')}</Label>
                     <Input
                       id="email"
                       name="email"
@@ -154,7 +154,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="firstName">First Name</Label>
+                    <Label htmlFor="firstName">{t('cartForm.firstName')}</Label>
                     <Input
                       id="firstName"
                       name="firstName"
@@ -164,7 +164,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="lastName">Last Name</Label>
+                    <Label htmlFor="lastName">{t('cartForm.lastName')}</Label>
                     <Input
                       id="lastName"
                       name="lastName"
@@ -174,7 +174,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <Label htmlFor="phone">WhatsApp Phone</Label>
+                    <Label htmlFor="phone">{t('cartForm.phone')}</Label>
                     <div className="mt-1.5 flex gap-2">
                       <Select defaultValue="+1" name="phonePrefix">
                         <SelectTrigger className="w-[100px] bg-secondary">
@@ -208,7 +208,7 @@ export function CheckoutContent() {
                 </h2>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <Label htmlFor="address">Street Address</Label>
+                    <Label htmlFor="address">{t('cartForm.street')}</Label>
                     <Input
                       id="address"
                       name="address"
@@ -218,7 +218,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <Label htmlFor="address2">Apartment, suite, etc. (optional)</Label>
+                    <Label htmlFor="address2">{t('cartForm.apt')}</Label>
                     <Input
                       id="address2"
                       name="address2"
@@ -227,7 +227,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="city">City</Label>
+                    <Label htmlFor="city">{t('cartForm.city')}</Label>
                     <Input
                       id="city"
                       name="city"
@@ -237,7 +237,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="state">State</Label>
+                    <Label htmlFor="state">{t('cartForm.state')}</Label>
                     <Input
                       id="state"
                       name="state"
@@ -247,7 +247,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="zip">ZIP Code</Label>
+                    <Label htmlFor="zip">{t('cartForm.zip')}</Label>
                     <Input
                       id="zip"
                       name="zip"
@@ -257,7 +257,7 @@ export function CheckoutContent() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="country">Country</Label>
+                    <Label htmlFor="country">{t('cartForm.country')}</Label>
                     <Select defaultValue="US" name="country">
                       <SelectTrigger className="mt-1.5 bg-secondary">
                         <SelectValue placeholder="Select country" />
@@ -275,16 +275,16 @@ export function CheckoutContent() {
 
               <div className="rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
-                  Secure White-Glove Payment
+                  {t('cartForm.securePayment')}
                 </h2>
                 <div className="mt-4 flex items-center gap-3 rounded-lg border border-border bg-secondary/50 p-4">
                   <ShieldCheck className="h-6 w-6 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      Personalized Setup
+                      {t('cartForm.personalizedSetup')}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      You will finalize payment directly with the jeweler to ensure maximum security.
+                      {t('cartForm.personalizedDesc')}
                     </p>
                   </div>
                 </div>
@@ -332,7 +332,7 @@ export function CheckoutContent() {
 
                 <div className="flex gap-2 mb-4">
                   <Input 
-                    placeholder="Discount Code" 
+                    placeholder={t('cartForm.discountCode')} 
                     value={promoInput} 
                     onChange={e => setPromoInput(e.target.value.toUpperCase())} 
                     disabled={!!appliedPromo} 
@@ -344,13 +344,13 @@ export function CheckoutContent() {
                     onClick={handleApplyPromo}
                     disabled={!!appliedPromo || !promoInput || isValidatingPromo}
                   >
-                    {appliedPromo ? "Applied" : "Apply"}
+                    {appliedPromo ? t('cartForm.applied') : t('cartForm.apply')}
                   </Button>
                 </div>
                 {appliedPromo && (
                   <div className="flex justify-between items-center text-sm mb-4 text-green-600 bg-green-50/10 border border-green-500/20 p-2 rounded">
                     <span className="flex items-center gap-2"><Tag className="w-3 h-3"/> {appliedPromo.code}</span>
-                    <button type="button" onClick={() => setAppliedPromo(null)} className="text-xs underline hover:text-green-500">Remove</button>
+                    <button type="button" onClick={() => setAppliedPromo(null)} className="text-xs underline hover:text-green-500">{t('cartForm.remove')}</button>
                   </div>
                 )}
 
@@ -363,14 +363,14 @@ export function CheckoutContent() {
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-green-500">
-                      <span>Discount</span>
+                      <span>{t('cartForm.discount')}</span>
                       <span>-{formatPrice(discountAmount)}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('cart.shipping')}</span>
                     <span className="text-foreground">
-                      {shipping === 0 ? 'Free' : formatPrice(shipping)}
+                      {shipping === 0 ? t('cartForm.free') : formatPrice(shipping)}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -399,7 +399,7 @@ export function CheckoutContent() {
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
-                      Submit & Contact Jeweler
+                      {t('cartForm.submit')}
                     </>
                   )}
                 </Button>

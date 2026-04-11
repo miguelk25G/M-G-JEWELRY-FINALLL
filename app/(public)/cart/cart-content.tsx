@@ -125,7 +125,7 @@ export function CartPageContent() {
           <div className="lg:col-span-1">
             <div className="sticky top-24 rounded-lg border border-border bg-card p-6">
               <h2 className="font-serif text-xl font-semibold text-foreground">
-                Order Summary
+                {t('cartForm.orderSummary')}
               </h2>
 
               <div className="mt-6 space-y-4">
@@ -152,7 +152,7 @@ export function CartPageContent() {
               </Button>
 
               <p className="mt-4 text-center text-xs text-muted-foreground">
-                Secure checkout powered by Stripe
+                {t('cartForm.secureCheckout')}
               </p>
             </div>
           </div>

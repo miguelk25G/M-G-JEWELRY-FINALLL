@@ -90,12 +90,12 @@ export function ProductCard({ product, className }: ProductCardProps) {
           <div className="absolute left-2 top-2 flex flex-col gap-1">
             {isOnSale && (
               <Badge variant="destructive" className="text-xs">
-                Sale
+                {locale === 'es' ? 'Oferta' : 'Sale'}
               </Badge>
             )}
             {product.isBestSeller && (
               <Badge variant="secondary" className="text-xs">
-                Best Seller
+                {locale === 'es' ? 'Más Vendido' : 'Best Seller'}
               </Badge>
             )}
             {isLowStock && (
@@ -165,7 +165,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
           </div>
           <p className="text-xs text-muted-foreground capitalize">
             {product.karat} {product.metalType}
-            {product.stoneType !== 'none' && ` • ${product.stoneType} diamond`}
+            {product.stoneType !== 'none' && ` • ${product.stoneType} ${locale === 'es' ? 'diamante' : 'diamond'}`}
           </p>
         </div>
       </Link>
