@@ -98,9 +98,15 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleCreate} className="space-y-4" key={editingCategory ? editingCategory.id : "new"}>
-              <div className="space-y-2">
-                <Label htmlFor="name">Nombre</Label>
-                <Input id="name" name="name" defaultValue={editingCategory?.name} placeholder="Ej. Anillos de Boda" required />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nombre (Inglés)</Label>
+                  <Input id="name" name="name" defaultValue={editingCategory?.name} placeholder="Ej. Wedding Rings" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nameEs">Nombre (Español)</Label>
+                  <Input id="nameEs" name="nameEs" defaultValue={editingCategory?.nameEs} placeholder="Ej. Anillos de Boda" required />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="slug">Segmento URL (slug)</Label>
@@ -115,8 +121,12 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="description">Descripción (Opcional)</Label>
-                <Textarea id="description" name="description" defaultValue={editingCategory?.description} rows={3} placeholder="Descubre nuestra selección..." />
+                <Label htmlFor="description">Descripción (Opcional - Inglés)</Label>
+                <Textarea id="description" name="description" defaultValue={editingCategory?.description} rows={3} placeholder="Discover our selection..." />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="descriptionEs">Descripción (Opcional - Español)</Label>
+                <Textarea id="descriptionEs" name="descriptionEs" defaultValue={editingCategory?.descriptionEs} rows={3} placeholder="Descubre nuestra selección..." />
               </div>
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? "Guardando..." : (editingCategory ? "Guardar Cambios" : "Añadir Colección")}
@@ -152,7 +162,10 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
                       <Image src={cat.image} alt={cat.name} fill className="object-cover" />
                     </div>
                   </TableCell>
-                  <TableCell className="font-bold">{cat.name}</TableCell>
+                  <TableCell className="font-bold">
+                    {cat.name}
+                    <div className="text-xs font-normal text-muted-foreground">{cat.nameEs}</div>
+                  </TableCell>
                   <TableCell className="text-muted-foreground text-sm">/collections/{cat.slug}</TableCell>
                   <TableCell>{cat.productCount}</TableCell>
                   <TableCell>

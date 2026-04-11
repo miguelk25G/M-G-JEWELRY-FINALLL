@@ -7,8 +7,10 @@ import { put } from "@vercel/blob"
 export async function createCategory(formData: FormData) {
   try {
     const name = formData.get("name") as string
+    const nameEs = formData.get("nameEs") as string
     const slug = formData.get("slug") as string
     const description = formData.get("description") as string
+    const descriptionEs = formData.get("descriptionEs") as string
     const imageFile = formData.get("image") as File | null
 
     if (!name || !slug) throw new Error("Faltan atributos clave")
@@ -30,8 +32,10 @@ export async function createCategory(formData: FormData) {
     await db.collection.create({
       data: {
         name,
+        nameEs: nameEs || null,
         slug,
         description: description || null,
+        descriptionEs: descriptionEs || null,
         image: imageUrl,
       }
     })
@@ -71,8 +75,10 @@ export async function toggleCategoryStatus(id: string, isActive: boolean) {
 export async function updateCategory(id: string, formData: FormData) {
   try {
     const name = formData.get("name") as string
+    const nameEs = formData.get("nameEs") as string
     const slug = formData.get("slug") as string
     const description = formData.get("description") as string
+    const descriptionEs = formData.get("descriptionEs") as string
     const imageFile = formData.get("image") as File | null
 
     const existing = await db.collection.findUnique({ where: { slug } })
@@ -83,8 +89,10 @@ export async function updateCategory(id: string, formData: FormData) {
     // Build the update payload dynamically
     const updateData: any = {
       name,
+      nameEs: nameEs || null,
       slug,
       description: description || null,
+      descriptionEs: descriptionEs || null,
     }
 
     if (imageFile && imageFile.size > 0) {
