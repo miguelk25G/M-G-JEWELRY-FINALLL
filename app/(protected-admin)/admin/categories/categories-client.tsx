@@ -24,8 +24,6 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
     
     const name = formData.get("name") as string
     const slug = formData.get("slug") as string
-    const description = formData.get("description") as string
-    const image = formData.get("image") as string // URL temporaria
 
     if (!name || !slug) {
       toast.error("Nombre y Segmento Link son obligatorios.")
@@ -34,7 +32,7 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
     }
 
     if (editingCategory) {
-      const res = await updateCategory(editingCategory.id, { name, slug, description, image })
+      const res = await updateCategory(editingCategory.id, formData)
       if (res.success) {
         toast.success("Categoría actualizada.")
         setEditingCategory(null)
@@ -43,7 +41,7 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
         toast.error(res.error)
       }
     } else {
-      const res = await createCategory({ name, slug, description, image })
+      const res = await createCategory(formData)
       if (res.success) {
         toast.success("Categoría creada satisfactoriamente.")
         ;(e.target as HTMLFormElement).reset()
@@ -110,8 +108,11 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
                 <p className="text-xs text-muted-foreground">Debe ser minúsculas y sin espacios. Ej: oro-18k</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="image">Banner / Imagen Principal (URL)</Label>
-                <Input id="image" name="image" defaultValue={editingCategory?.image} placeholder="https://..." type="url" />
+                <Label htmlFor="image">Banner / Imagen Principal (Foto Real)</Label>
+                <Input id="image" name="image" type="file" accept="image/*" className="cursor-pointer" />
+                {editingCategory?.image && (
+                   <p className="text-xs text-muted-foreground mt-1">Ya tiene un archivo. Sube otro para reemplazarlo.</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Descripción (Opcional)</Label>

@@ -2,25 +2,37 @@
 
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { put } from "@vercel/blob"
 
-export async function createCategory(data: {
-  name: string
-  slug: string
-  description?: string
-  image?: string
-}) {
+export async function createCategory(formData: FormData) {
   try {
-    const existing = await db.collection.findUnique({ where: { slug: data.slug } })
+    const name = formData.get("name") as string
+    const slug = formData.get("slug") as string
+    const description = formData.get("description") as string
+    const imageFile = formData.get("image") as File | null
+
+    if (!name || !slug) throw new Error("Faltan atributos clave")
+
+    const existing = await db.collection.findUnique({ where: { slug } })
     if (existing) {
       return { success: false, error: "Otra categoría ya usa este link (slug)." }
     }
 
+    let imageUrl = null
+
+    if (imageFile && imageFile.size > 0) {
+      const blob = await put(`categories/${Date.now()}-${imageFile.name}`, imageFile, {
+        access: "public",
+      })
+      imageUrl = blob.url
+    }
+
     await db.collection.create({
       data: {
-        name: data.name,
-        slug: data.slug,
-        description: data.description || null,
-        image: data.image || null,
+        name,
+        slug,
+        description: description || null,
+        image: imageUrl,
       }
     })
     
@@ -56,26 +68,35 @@ export async function toggleCategoryStatus(id: string, isActive: boolean) {
   }
 }
 
-export async function updateCategory(id: string, data: {
-  name: string
-  slug: string
-  description?: string
-  image?: string
-}) {
+export async function updateCategory(id: string, formData: FormData) {
   try {
-    const existing = await db.collection.findUnique({ where: { slug: data.slug } })
+    const name = formData.get("name") as string
+    const slug = formData.get("slug") as string
+    const description = formData.get("description") as string
+    const imageFile = formData.get("image") as File | null
+
+    const existing = await db.collection.findUnique({ where: { slug } })
     if (existing && existing.id !== id) {
       return { success: false, error: "Otra categoría ya usa este link (slug)." }
     }
 
+    // Build the update payload dynamically
+    const updateData: any = {
+      name,
+      slug,
+      description: description || null,
+    }
+
+    if (imageFile && imageFile.size > 0) {
+      const blob = await put(`categories/${Date.now()}-${imageFile.name}`, imageFile, {
+        access: "public",
+      })
+      updateData.image = blob.url
+    }
+
     await db.collection.update({
       where: { id },
-      data: {
-        name: data.name,
-        slug: data.slug,
-        description: data.description || null,
-        image: data.image || null,
-      }
+      data: updateData
     })
     
     revalidatePath("/admin/categories")
