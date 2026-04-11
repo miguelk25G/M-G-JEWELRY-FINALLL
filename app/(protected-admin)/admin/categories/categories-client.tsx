@@ -10,11 +10,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Switch } from "@/components/ui/switch"
-import { Trash2 } from "lucide-react"
-import { createCategory, deleteCategory, toggleCategoryStatus } from "@/lib/actions/admin-categories"
+import { Edit, Trash2, X } from "lucide-react"
+import { createCategory, deleteCategory, toggleCategoryStatus, updateCategory } from "@/lib/actions/admin-categories"
 
 export function CategoriesClient({ categories }: { categories: any[] }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<any>(null)
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -32,12 +33,23 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
       return
     }
 
-    const res = await createCategory({ name, slug, description, image })
-    if (res.success) {
-      toast.success("Categoría creada satisfactoriamente.")
-      ;(e.target as HTMLFormElement).reset()
+    if (editingCategory) {
+      const res = await updateCategory(editingCategory.id, { name, slug, description, image })
+      if (res.success) {
+        toast.success("Categoría actualizada.")
+        setEditingCategory(null)
+        ;(e.target as HTMLFormElement).reset()
+      } else {
+        toast.error(res.error)
+      }
     } else {
-      toast.error(res.error)
+      const res = await createCategory({ name, slug, description, image })
+      if (res.success) {
+        toast.success("Categoría creada satisfactoriamente.")
+        ;(e.target as HTMLFormElement).reset()
+      } else {
+        toast.error(res.error)
+      }
     }
     
     setIsSubmitting(false)
@@ -74,30 +86,39 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1 border-border bg-card h-fit">
           <CardHeader>
-            <CardTitle>Nueva Categoría</CardTitle>
-            <CardDescription>Crea un nuevo panel para clasificar joyas.</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{editingCategory ? "Editar Colección" : "Nueva Categoría"}</CardTitle>
+                <CardDescription>{editingCategory ? "Modificando una existente." : "Crea un nuevo panel para clasificar joyas."}</CardDescription>
+              </div>
+              {editingCategory && (
+                <Button variant="ghost" size="icon" onClick={() => setEditingCategory(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleCreate} className="space-y-4">
+            <form onSubmit={handleCreate} className="space-y-4" key={editingCategory ? editingCategory.id : "new"}>
               <div className="space-y-2">
                 <Label htmlFor="name">Nombre</Label>
-                <Input id="name" name="name" placeholder="Ej. Anillos de Boda" required />
+                <Input id="name" name="name" defaultValue={editingCategory?.name} placeholder="Ej. Anillos de Boda" required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="slug">Segmento URL (slug)</Label>
-                <Input id="slug" name="slug" placeholder="Ej. anillos-boda" pattern="^[a-z0-9-]+$" title="Solo minusculas y guiones" required />
+                <Input id="slug" name="slug" defaultValue={editingCategory?.slug} placeholder="Ej. anillos-boda" pattern="^[a-z0-9-]+$" title="Solo minusculas y guiones sin espacios" required />
                 <p className="text-xs text-muted-foreground">Debe ser minúsculas y sin espacios. Ej: oro-18k</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="image">Banner / Imagen Principal (URL)</Label>
-                <Input id="image" name="image" placeholder="https://..." type="url" />
+                <Input id="image" name="image" defaultValue={editingCategory?.image} placeholder="https://..." type="url" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Descripción (Opcional)</Label>
-                <Textarea id="description" name="description" rows={3} placeholder="Descubre nuestra selección..." />
+                <Textarea id="description" name="description" defaultValue={editingCategory?.description} rows={3} placeholder="Descubre nuestra selección..." />
               </div>
               <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Creando..." : "Añadir Colección"}
+                {isSubmitting ? "Guardando..." : (editingCategory ? "Guardar Cambios" : "Añadir Colección")}
               </Button>
             </form>
           </CardContent>
@@ -137,6 +158,9 @@ export function CategoriesClient({ categories }: { categories: any[] }) {
                     <Switch checked={cat.isActive} onCheckedChange={() => handleToggle(cat.id, cat.isActive)} />
                   </TableCell>
                   <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" className="hover:bg-accent" onClick={() => setEditingCategory(cat)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(cat.id, cat.productCount)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>

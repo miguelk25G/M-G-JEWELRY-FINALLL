@@ -55,3 +55,32 @@ export async function toggleCategoryStatus(id: string, isActive: boolean) {
     return { success: false, error: String(error.message || error) }
   }
 }
+
+export async function updateCategory(id: string, data: {
+  name: string
+  slug: string
+  description?: string
+  image?: string
+}) {
+  try {
+    const existing = await db.collection.findUnique({ where: { slug: data.slug } })
+    if (existing && existing.id !== id) {
+      return { success: false, error: "Otra categoría ya usa este link (slug)." }
+    }
+
+    await db.collection.update({
+      where: { id },
+      data: {
+        name: data.name,
+        slug: data.slug,
+        description: data.description || null,
+        image: data.image || null,
+      }
+    })
+    
+    revalidatePath("/admin/categories")
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: String(error.message || error) }
+  }
+}

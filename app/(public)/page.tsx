@@ -15,6 +15,12 @@ export default async function HomePage() {
     orderBy: { createdAt: 'desc' },
     where: { isActive: true }
   })
+  
+  const dbCollections = await db.collection.findMany({
+    take: 3,
+    where: { isActive: true },
+    orderBy: { createdAt: 'desc' },
+  })
 
   // Format products so they match what BestSellersSection expects
   const mappedProducts = dbProducts.map(p => ({
@@ -36,7 +42,7 @@ export default async function HomePage() {
   return (
     <>
       <HeroSection />
-      <FeaturedCategories />
+      <FeaturedCategories categories={dbCollections} />
       <BestSellersSection products={mappedProducts} />
       <WhiteGloveSection />
       <EducationSection />

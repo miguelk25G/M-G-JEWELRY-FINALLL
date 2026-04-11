@@ -5,25 +5,7 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { useTranslation } from '@/i18n/locale-context'
 
-const categories = [
-  {
-    key: 'chains',
-    href: '/collections/chains',
-    image: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=800',
-  },
-  {
-    key: 'bracelets',
-    href: '/collections/bracelets',
-    image: 'https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=800',
-  },
-  {
-    key: 'earrings',
-    href: '/collections/earrings',
-    image: 'https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=800',
-  },
-]
-
-export function FeaturedCategories() {
+export function FeaturedCategories({ categories }: { categories: any[] }) {
   const { t } = useTranslation()
 
   return (
@@ -48,14 +30,14 @@ export function FeaturedCategories() {
         {/* Categories Grid */}
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {categories.map((category) => (
-            <Link
-              key={category.key}
-              href={category.href}
-              className="group relative aspect-[4/5] overflow-hidden rounded-xl"
+              <Link
+              key={category.id}
+              href={`/collections/${category.slug}`}
+              className="group relative aspect-[4/5] overflow-hidden rounded-xl bg-secondary"
             >
               <Image
                 src={category.image || "/placeholder.svg"}
-                alt={t(`featured.${category.key}`)}
+                alt={category.name}
                 fill
                 className="object-cover transition-transform duration-700 group-hover:scale-105"
                 sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
@@ -63,10 +45,10 @@ export function FeaturedCategories() {
               <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-6">
                 <h3 className="font-serif text-2xl font-semibold text-foreground">
-                  {t(`featured.${category.key}`)}
+                  {category.name}
                 </h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t(`featured.${category.key}Desc`)}
+                <p className="mt-2 text-sm text-muted-foreground line-clamp-2">
+                  {category.description || ''}
                 </p>
                 <div className="mt-4 flex items-center gap-2 text-sm font-medium text-foreground">
                   <span>{t('featured.viewAll')}</span>
