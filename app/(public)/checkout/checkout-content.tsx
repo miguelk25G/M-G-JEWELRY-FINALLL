@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft, Send, ShieldCheck, ShoppingBag } from 'lucide-react'
+import { ArrowLeft, Send, ShieldCheck, ShoppingBag, Tag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,16 +18,56 @@ import {
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
-import { submitConciergeOrder } from '@/lib/actions/checkout'
+import { submitConciergeOrder, applyPromoCode } from '@/lib/actions/checkout'
+import { toast } from 'sonner'
 
 export function CheckoutContent() {
   const { t } = useTranslation()
   const { items, subtotal, clearCart } = useCartStore()
   const [isProcessing, setIsProcessing] = useState(false)
-  const total = subtotal()
-  const shipping = total > 500 ? 0 : 25
-  const tax = total * 0.08
-  const finalTotal = total + shipping + tax
+  const [promoInput, setPromoInput] = useState("")
+  const [isValidatingPromo, setIsValidatingPromo] = useState(false)
+  const [appliedPromo, setAppliedPromo] = useState<{code: string, type: string, value: number} | null>(null)
+
+  const rawSubtotal = subtotal()
+  
+  let discountAmount = 0
+  if (appliedPromo) {
+    if (appliedPromo.type === 'percentage') {
+      discountAmount = rawSubtotal * (appliedPromo.value / 100)
+    } else {
+      discountAmount = appliedPromo.value
+    }
+  }
+
+  const discountedSubtotal = Math.max(0, rawSubtotal - discountAmount)
+  const shipping = discountedSubtotal > 500 ? 0 : 25
+  const tax = discountedSubtotal * 0.08
+  const finalTotal = discountedSubtotal + shipping + tax
+
+  const handleApplyPromo = async () => {
+    if (!promoInput) return
+    setIsValidatingPromo(true)
+    const toastId = toast.loading("Validando código...")
+    
+    try {
+      const res = await applyPromoCode(promoInput)
+      if (res.success) {
+        setAppliedPromo({
+          code: res.code,
+          type: res.discountType,
+          value: res.discountValue
+        })
+        toast.success("Código aplicado", { id: toastId })
+      } else {
+        toast.error(res.error, { id: toastId })
+      }
+    } catch (e) {
+      toast.error("Error validando el código", { id: toastId })
+    } finally {
+      setIsValidatingPromo(false)
+    }
+  }
 
   if (items.length === 0) {
     return (
@@ -42,7 +82,7 @@ export function CheckoutContent() {
             </h1>
             <p className="mt-2 text-muted-foreground">Add some items to checkout</p>
             <Button className="mt-6" asChild>
-              <Link href="/collections/rings">Continue Shopping</Link>
+              <Link href="/collections">Continue Shopping</Link>
             </Button>
           </div>
         </div>
@@ -56,6 +96,10 @@ export function CheckoutContent() {
     
     try {
       const formData = new FormData(e.currentTarget)
+      if (appliedPromo) {
+        formData.append("promoCode", appliedPromo.code)
+      }
+
       const res = await submitConciergeOrder(formData, items)
       
       if (res.success) {
@@ -75,7 +119,6 @@ export function CheckoutContent() {
   return (
     <div className="py-8 lg:py-12">
       <div className="mx-auto max-w-7xl px-4 lg:px-8">
-        {/* Back Link */}
         <Link
           href="/cart"
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
@@ -93,9 +136,7 @@ export function CheckoutContent() {
 
         <form onSubmit={handleSubmit}>
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
-            {/* Checkout Form */}
             <div className="space-y-8 lg:col-span-2">
-              {/* Contact Information */}
               <div className="rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
                   {t('checkout.contact')}
@@ -140,12 +181,12 @@ export function CheckoutContent() {
                           <SelectValue placeholder="Code" />
                         </SelectTrigger>
                         <SelectContent className="bg-background">
-                          <SelectItem value="+1">+1 (US/CA)</SelectItem>
+                          <SelectItem value="+1">+1 (US)</SelectItem>
                           <SelectItem value="+44">+44 (UK)</SelectItem>
-                          <SelectItem value="+52">+52 (Mexico)</SelectItem>
-                          <SelectItem value="+34">+34 (Spain)</SelectItem>
-                          <SelectItem value="+506">+506 (Costa Rica)</SelectItem>
-                          <SelectItem value="+57">+57 (Colombia)</SelectItem>
+                          <SelectItem value="+52">+52 (MX)</SelectItem>
+                          <SelectItem value="+34">+34 (ES)</SelectItem>
+                          <SelectItem value="+506">+506 (CR)</SelectItem>
+                          <SelectItem value="+57">+57 (CO)</SelectItem>
                         </SelectContent>
                       </Select>
                       <Input
@@ -161,7 +202,6 @@ export function CheckoutContent() {
                 </div>
               </div>
 
-              {/* Shipping Address */}
               <div className="rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
                   {t('checkout.shipping')}
@@ -233,7 +273,6 @@ export function CheckoutContent() {
                 </div>
               </div>
 
-              {/* Payment Info */}
               <div className="rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
                   Secure White-Glove Payment
@@ -252,7 +291,6 @@ export function CheckoutContent() {
               </div>
             </div>
 
-            {/* Order Summary */}
             <div className="lg:col-span-1">
               <div className="sticky top-24 rounded-lg border border-border bg-card p-6">
                 <h2 className="font-serif text-xl font-semibold text-foreground">
@@ -292,11 +330,43 @@ export function CheckoutContent() {
 
                 <Separator className="my-4" />
 
+                <div className="flex gap-2 mb-4">
+                  <Input 
+                    placeholder="Discount Code" 
+                    value={promoInput} 
+                    onChange={e => setPromoInput(e.target.value.toUpperCase())} 
+                    disabled={!!appliedPromo} 
+                    className="bg-secondary"
+                  />
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={handleApplyPromo}
+                    disabled={!!appliedPromo || !promoInput || isValidatingPromo}
+                  >
+                    {appliedPromo ? "Applied" : "Apply"}
+                  </Button>
+                </div>
+                {appliedPromo && (
+                  <div className="flex justify-between items-center text-sm mb-4 text-green-600 bg-green-50/10 border border-green-500/20 p-2 rounded">
+                    <span className="flex items-center gap-2"><Tag className="w-3 h-3"/> {appliedPromo.code}</span>
+                    <button type="button" onClick={() => setAppliedPromo(null)} className="text-xs underline hover:text-green-500">Remove</button>
+                  </div>
+                )}
+
+                <Separator className="my-4" />
+
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('cart.subtotal')}</span>
-                    <span className="text-foreground">{formatPrice(total)}</span>
+                    <span className="text-foreground">{formatPrice(rawSubtotal)}</span>
                   </div>
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-green-500">
+                      <span>Discount</span>
+                      <span>-{formatPrice(discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('cart.shipping')}</span>
                     <span className="text-foreground">
@@ -334,9 +404,6 @@ export function CheckoutContent() {
                   )}
                 </Button>
 
-                <p className="mt-4 flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
-                  Your order details will be sent via encrypted WhatsApp to our concierge team.
-                </p>
               </div>
             </div>
           </div>
@@ -345,4 +412,3 @@ export function CheckoutContent() {
     </div>
   )
 }
-
