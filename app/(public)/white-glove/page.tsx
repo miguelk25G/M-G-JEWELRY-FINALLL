@@ -44,7 +44,7 @@ export default function WhiteGlovePage() {
     { id: 'q8', type: 'radio', options: getDynamicSizes(answers.q3), label_en: 'Sizing', label_es: 'Tamaño o Talla' },
     { id: 'q9', type: 'radio', options: ['Within 1 week', '2 weeks', '1 month', 'Flexible'], label_en: 'Deadline', label_es: 'Límite de tiempo' },
     { id: 'q10', type: 'radio', options: ['Natural Stones', 'Lab-Grown Stones', 'No Stones / Solid Gold', 'Not sure'], label_en: 'Stone preference', label_es: 'Preferencia de piedras' },
-    { id: 'q11', type: 'radio', options: ['Instagram DM', 'WhatsApp', 'Phone Call', 'Email'], label_en: 'Preferred contact method', label_es: 'Método de contacto preferido' }
+    { id: 'q11', type: 'radio', options: ['Instagram DM', 'WhatsApp', 'Phone Text', 'Email'], label_en: 'Preferred contact method', label_es: 'Método de contacto preferido' }
   ]
 
   const currentQ = QUESTIONS[step]
@@ -68,7 +68,7 @@ export default function WhiteGlovePage() {
 
     // Build the final contact string based on the user's choice
     let finalContactStr = ''
-    if (answers.q11 === 'WhatsApp' || answers.q11 === 'Phone Call') {
+    if (answers.q11 === 'WhatsApp' || answers.q11 === 'Phone Text') {
       finalContactStr = `${answers.q11}: ${phonePrefix} ${contactValue}`
     } else {
       finalContactStr = `${answers.q11}: ${contactValue}`
@@ -102,7 +102,9 @@ export default function WhiteGlovePage() {
 
   if (isSubmitted) {
     const waText = encodeURIComponent(getSummary())
-    const waLink = `https://wa.me/${BrandConfig.CONTACT.whatsappNumber.replace(/\+/g, '')}?text=${waText}`
+    const targetNumber = "15125760229"
+    const waLink = `https://wa.me/${targetNumber}?text=${waText}`
+    const smsLink = `sms:${targetNumber}?body=${waText}`
 
     return (
       <div className="mx-auto max-w-lg px-4 py-24 text-center">
@@ -123,6 +125,13 @@ export default function WhiteGlovePage() {
                 <a href={waLink} target="_blank" rel="noopener noreferrer">
                     <MessageCircle className="h-5 w-5" />
                     {locale === 'es' ? 'Enviar resumen por WhatsApp' : 'Send via WhatsApp'}
+                </a>
+            </Button>
+
+            <Button asChild variant="outline" className="w-full flex gap-2 h-14 text-lg border-primary/20 hover:bg-primary/5 text-primary">
+                <a href={smsLink}>
+                    <MessageCircle className="h-5 w-5" />
+                    {locale === 'es' ? 'Enviar por Mensaje de Texto (SMS)' : 'Send via Text Message (SMS)'}
                 </a>
             </Button>
 
@@ -186,13 +195,13 @@ export default function WhiteGlovePage() {
             {step === QUESTIONS.length - 1 && answers[currentQ.id] && (
                 <div className="mt-8 p-4 bg-secondary/30 rounded-lg border border-border/50">
                     <Label className="mb-3 block font-medium">
-                       {answers[currentQ.id] === 'WhatsApp' || answers[currentQ.id] === 'Phone Call' 
+                       {answers[currentQ.id] === 'WhatsApp' || answers[currentQ.id] === 'Phone Text' 
                          ? (locale === 'es' ? 'Ingresa tu Número Móvil' : 'Enter your Mobile Number')
                          : (locale === 'es' ? `Ingresa tu ${answers[currentQ.id]}` : `Enter your ${answers[currentQ.id]}`)
                        }
                     </Label>
 
-                    {answers[currentQ.id] === 'WhatsApp' || answers[currentQ.id] === 'Phone Call' ? (
+                    {answers[currentQ.id] === 'WhatsApp' || answers[currentQ.id] === 'Phone Text' ? (
                       <div className="flex gap-2">
                         <Select value={phonePrefix} onValueChange={setPhonePrefix}>
                           <SelectTrigger className="w-[100px] h-12 bg-background border-border">
