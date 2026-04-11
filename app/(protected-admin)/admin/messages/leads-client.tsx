@@ -34,6 +34,7 @@ export function LeadsClient({ vips, contacts }: { vips: any[], contacts: any[] }
                     <TableHead>Instagram ID</TableHead>
                     <TableHead>Idioma</TableHead>
                     <TableHead>Fecha</TableHead>
+                    <TableHead className="text-right">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -47,6 +48,13 @@ export function LeadsClient({ vips, contacts }: { vips: any[], contacts: any[] }
                       <TableCell>{vip.ig !== "-" ? `@${vip.ig}` : "-"}</TableCell>
                       <TableCell className="uppercase">{vip.lang}</TableCell>
                       <TableCell className="text-muted-foreground">{vip.date}</TableCell>
+                      <TableCell className="text-right">
+                        {vip.phone !== "-" && (
+                           <a target="_blank" href={`https://wa.me/${vip.phone.replace(/\D/g, '')}?text=${encodeURIComponent("Hola! Te saludo del equipo de M&G Jewelry. Recibimos tu aplicación para la lista VIP White-Glove y te queremos dar la bienvenida Oficial.")}`}>
+                             <Badge className="bg-green-500 hover:bg-green-600 cursor-pointer">WhatsApp</Badge>
+                           </a>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

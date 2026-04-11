@@ -9,6 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+import { subscribeVIP } from '@/lib/actions/vip'
+import { toast } from 'sonner'
+
 const BENEFITS = [
   { icon: Star, title_en: 'Early Access', title_es: 'Acceso Anticipado', desc_en: 'Shop new collections before the public release.', desc_es: 'Compra nuevas colecciones antes del lanzamiento público.' },
   { icon: Crown, title_en: 'Priority White-Glove', title_es: 'Prioridad White-Glove', desc_en: 'Skip the line for custom orders and consultations.', desc_es: 'Salta la fila para pedidos personalizados y consultas.' },
@@ -19,19 +22,31 @@ const BENEFITS = [
 
 export default function MgFamilyPage() {
   const { locale } = useTranslation()
+
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [ig, setIg] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDone, setIsDone] = useState(false)
 
-  const handleWaitlist = (e: React.FormEvent) => {
+  const handleWaitlist = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
-    setTimeout(() => {
-      setIsSubmitting(false)
+    
+    const formData = new FormData()
+    formData.append("email", email)
+    formData.append("phone", phone)
+    formData.append("ig", ig)
+
+    const result = await subscribeVIP(formData, locale)
+    
+    if (result.success) {
       setIsDone(true)
-    }, 1000)
+    } else {
+      toast.error(locale === 'es' ? 'Error: ' + result.error : 'Error: ' + result.error)
+    }
+    
+    setIsSubmitting(false)
   }
 
   return (

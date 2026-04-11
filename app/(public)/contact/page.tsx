@@ -18,6 +18,8 @@ import {
 import { MapPin, Phone, Mail, Clock, Send, Loader2, CheckCircle, Instagram } from "lucide-react"
 import { useLocale } from "@/i18n/locale-context"
 import { BrandConfig } from "@/lib/config/brand"
+import { submitContactForm } from "@/lib/actions/contact"
+import { toast } from "sonner"
 
 export default function ContactPage() {
   const { t } = useLocale()
@@ -33,14 +35,28 @@ export default function ContactPage() {
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
+
     e.preventDefault()
     if (formData.honeypot) return // Bot caught
 
     setIsSubmitting(true)
-    // Simulate DB saving ContactSubmission
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    
+    const dbData = new FormData()
+    dbData.append("name", formData.name)
+    dbData.append("email", formData.email)
+    dbData.append("phone", formData.phone)
+    dbData.append("reason", formData.subject || "general")
+    dbData.append("message", formData.message)
+
+    const res = await submitContactForm(dbData)
+    
+    if (res.success) {
+      setIsSubmitted(true)
+    } else {
+      toast.error("Hubo un error enviando el mensaje.")
+    }
+    
     setIsSubmitting(false)
-    setIsSubmitted(true)
   }
 
   if (isSubmitted) {
