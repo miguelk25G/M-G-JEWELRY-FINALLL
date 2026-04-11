@@ -1,7 +1,7 @@
 {
   "common": {
     "brandName": "M&G Jewelry",
-    "tagline": "Luxury Diamond Jewelry",
+    "tagline": "Luxury All Time Jewelry",
     "loading": "Loading...",
     "error": "Something went wrong",
     "success": "Success!",
@@ -43,9 +43,15 @@
   },
   "hero": {
     "headline": "Timeless Elegance, Crafted for You",
-    "subheadline": "Discover our curated collection of luxury diamond jewelry. Each piece tells a story of exceptional craftsmanship and enduring beauty.",
+    "subheadline": "Discover our curated collection of luxury all time jewelry. Each piece tells a story of exceptional craftsmanship and enduring beauty.",
     "shopBestSellers": "Shop Best Sellers",
-    "whiteGlove": "White-Glove â€” Get 3 Picks"
+    "whiteGlove": "White-Glove",
+    "stat1Num": "18K+",
+    "stat1Desc": "Solid Gold & Platinum",
+    "stat2Num": "1-on-1",
+    "stat2Desc": "Private Concierge",
+    "stat3Num": "100%",
+    "stat3Desc": "Certified Authentic"
   },
   "featured": {
     "title": "Featured Categories",

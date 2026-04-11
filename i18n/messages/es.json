@@ -1,7 +1,7 @@
 {
   "common": {
     "brandName": "M&G Jewelry",
-    "tagline": "JoyerÃ­a de Diamantes de Lujo",
+    "tagline": "Joyería Fina Atemporal",
     "loading": "Cargando...",
     "error": "Algo saliÃ³ mal",
     "success": "Â¡Ã‰xito!",
@@ -43,9 +43,15 @@
   },
   "hero": {
     "headline": "Elegancia Atemporal, Creada para Ti",
-    "subheadline": "Descubre nuestra colecciÃ³n curada de joyerÃ­a de diamantes de lujo. Cada pieza cuenta una historia de artesanÃ­a excepcional y belleza perdurable.",
-    "shopBestSellers": "Ver MÃ¡s Vendidos",
-    "whiteGlove": "Servicio White-Glove â€” ObtÃ©n 3 Recomendaciones"
+    "subheadline": "Descubre nuestra colección de joyería fina atemporal. Cada pieza cuenta una historia de artesanía excepcional y belleza perdurable.",
+    "shopBestSellers": "Ver Más Vendidos",
+    "whiteGlove": "White-Glove",
+    "stat1Num": "18K+",
+    "stat1Desc": "Oro Sólido y Platino",
+    "stat2Num": "1-on-1",
+    "stat2Desc": "Concierge Privado",
+    "stat3Num": "100%",
+    "stat3Desc": "Autenticidad Certificada"
   },
   "featured": {
     "title": "CategorÃ­as Destacadas",

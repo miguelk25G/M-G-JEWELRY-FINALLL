@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import Image from 'next/image'
@@ -69,7 +69,7 @@ export function HeroSection() {
             >
               <Link href="/white-glove">
                 <Sparkles className="h-4 w-4" />
-                {t('hero.concierge')}
+                {t('hero.whiteGlove')}
               </Link>
             </Button>
           </div>
@@ -78,16 +78,16 @@ export function HeroSection() {
         {/* Stats */}
         <div className="mt-16 grid grid-cols-3 gap-8 lg:mt-24">
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">15+</p>
-            <p className="mt-1 text-sm text-muted-foreground">Years of Excellence</p>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat1Num')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat1Desc')}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">10K+</p>
-            <p className="mt-1 text-sm text-muted-foreground">Happy Customers</p>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat2Num')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat2Desc')}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">100%</p>
-            <p className="mt-1 text-sm text-muted-foreground">Certified Authentic</p>
+            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat3Num')}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat3Desc')}</p>
           </div>
         </div>
       </div>
