@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic"
 
 export default async function ProductsPage() {
   const dbProducts = await db.product.findMany({
+    where: { NOT: { slug: { startsWith: 'deleted-' } } },
     orderBy: { createdAt: "desc" },
   })
 
