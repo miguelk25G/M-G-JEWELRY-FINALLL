@@ -20,16 +20,34 @@ export default function EducationPage() {
       title_es: 'Oro: 10K vs 14K vs 18K',
       content_en: (
         <div className="space-y-4">
-          <p><strong>10K Gold (41.7% Pure):</strong> The most durable option. Best for heavy daily wear, but has a paler yellow color. Great for solid, chunky rings.</p>
-          <p><strong>14K Gold (58.3% Pure):</strong> The perfect balance of durability and vibrant color. This is the industry standard for fine jewelry and engagement rings.</p>
-          <p><strong>18K Gold (75.0% Pure):</strong> Richer, warmer yellow tone. Softer and more prone to scratching, making it ideal for special occasion pieces or earrings.</p>
+          <p><strong>Quick takeaways:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>10K:</strong> most durable feel, lighter gold color, typically more budget-friendly.</li>
+            <li><strong>14K:</strong> the most common “sweet spot” for daily wear—good durability + richer color.</li>
+            <li><strong>18K:</strong> richest gold color, higher gold content, can feel softer than lower karats.</li>
+          </ul>
+          <p><strong>How to choose:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Want everyday wear + durability → 10K or 14K</li>
+            <li>Want best balance → 14K</li>
+            <li>Want deepest gold look → 18K</li>
+          </ul>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p><strong>Oro de 10K (41.7% Puro):</strong> La opción más resistente. Ideal para uso diario rudo, aunque su tono amarillo es más pálido.</p>
-          <p><strong>Oro de 14K (58.3% Puro):</strong> El equilibrio perfecto entre durabilidad y color vibrante. Es el estándar de la industria para joyería fina.</p>
-          <p><strong>Oro de 18K (75.0% Puro):</strong> Un tono amarillo más rico y cálido. Es más suave y propenso a rayones, ideal para piezas de ocasión especial o aretes.</p>
+          <p><strong>Puntos clave:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>10K:</strong> la sensación más duradera, color de oro más claro, típicamente más accesible.</li>
+            <li><strong>14K:</strong> el "punto ideal" más común para uso diario—buena durabilidad + color más rico.</li>
+            <li><strong>18K:</strong> el color de oro más rico, mayor contenido de oro, puede sentirse más suave que quilatajes menores.</li>
+          </ul>
+          <p><strong>Cómo elegir:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Uso diario + durabilidad → 10K o 14K</li>
+            <li>El mejor equilibrio → 14K</li>
+            <li>El look de oro más profundo → 18K</li>
+          </ul>
         </div>
       )
     },
@@ -39,90 +57,148 @@ export default function EducationPage() {
       title_es: 'Largo de Cadenas y Capas',
       content_en: (
         <div className="space-y-4">
-          <p><strong>18" (45 cm):</strong> Sits on the collarbone. Perfect for small pendants and everyday wear.</p>
-          <p><strong>20" (50 cm):</strong> Falls a few inches below the collarbone. The most common standard length for men and women.</p>
-          <p><strong>22" (55 cm):</strong> Hangs at or just above the top of the chest. Excellent for layering with an 18" or 20" chain.</p>
-          <p><strong>24" (60 cm):</strong> Falls at the center of the chest. Great for larger pendants and statement cross chains.</p>
+          <p><strong>Layering rule (easy mode):</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Pick lengths 2 inches apart (e.g., 18" + 20" or 20" + 22") so chains don’t stack on the same line.</li>
+            <li>Mix one simple chain + one textured chain for contrast.</li>
+          </ul>
+          <p><strong>Pendant tip:</strong> If you’re wearing a pendant, choose a slightly longer chain so it sits cleanly and doesn’t collide with other layers.</p>
+          <p><strong>How to measure at home:</strong> Use a string around your neck, mark your desired drop point, then measure it flat. (This matches how necklace length is typically visualized in sizing guides.)</p>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p><strong>18" (45 cm):</strong> Descansa en la clavícula. Perfecto para dijes pequeños y uso diario.</p>
-          <p><strong>20" (50 cm):</strong> Cae unos centímetros debajo de la clavícula. El tamaño estándar más común.</p>
-          <p><strong>22" (55 cm):</strong> Cae justo arriba del pecho. Excelente para usar en capas con una cadena de 18" o 20".</p>
-          <p><strong>24" (60 cm):</strong> Cae en el centro del pecho. Ideal para dijes grandes y cruces llamativas.</p>
+          <p><strong>Regla para usar en capas (fácil):</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Elige largos con 2 pulgadas de diferencia (ej. 18" + 20" ó 20" + 22") para que no se encimen.</li>
+            <li>Mezcla una cadena simple + una texturizada para contraste.</li>
+          </ul>
+          <p><strong>Consejo para dijes:</strong> Si usas un dije, elige una cadena un poco más larga para que luzca bien y no choque con otras capas.</p>
+          <p><strong>Cómo medir en casa:</strong> Usa un hilo alrededor de tu cuello, marca el punto de caída deseado y luego mídelo en plano.</p>
         </div>
       )
     },
     {
       id: 'bracelets',
-      title_en: 'Bracelet Sizing',
-      title_es: 'Tallas de Pulseras',
+      title_en: 'Bracelet Sizing (and stacking)',
+      title_es: 'Tallas de Pulseras (y capas)',
       content_en: (
         <div className="space-y-4">
-          <p>A standard women's bracelet is 7 to 7.5 inches, while a standard men's bracelet is 8 inches.</p>
-          <p><strong>How to measure:</strong> Wrap a flexible measuring tape tightly around your wrist, just below the wrist bone. Add 0.5 inches for a snug fit or 1 inch for a loose, comfortable fit.</p>
+          <p><strong>How to measure:</strong> Use a flexible tape (or string). Wrap it around the thickest part of your wrist. If you plan to stack, measure where you’ll wear each bracelet.</p>
+          <p><strong>Fit guide:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>Snug fit:</strong> wrist size + ~0.5"</li>
+            <li><strong>Comfort fit:</strong> wrist size + ~1.0"</li>
+            <li><strong>Loose/stack fit:</strong> wrist size + ~1.5"</li>
+          </ul>
+          <p className="text-sm italic">(This is a practical rule-of-thumb; final feel depends on bracelet style.)</p>
+          <p><strong>Wearing a watch?</strong> A slightly slimmer bracelet or a cleaner link style usually layers better next to a watch (less clashing).</p>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p>La pulsera estándar para mujer es de 7 a 7.5 pulgadas. Para hombre, el estándar es de 8 pulgadas.</p>
-          <p><strong>Cómo medir:</strong> Envuelve una cinta métrica flexible alrededor de tu muñeca, justo debajo del hueso. Agrega 0.5 pulgadas para un ajuste exacto o 1 pulgada para más comodidad.</p>
+          <p><strong>Cómo medir:</strong> Usa una cinta flexible (o hilo). Envuélvelo alrededor de la parte más gruesa de tu muñeca. Si planeas usar varias, mide dónde usarás cada pulsera.</p>
+          <p><strong>Guía de ajuste:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>Ajustado:</strong> medida de muñeca + ~0.5"</li>
+            <li><strong>Cómodo:</strong> medida de muñeca + ~1.0"</li>
+            <li><strong>Holgado / capas:</strong> medida de muñeca + ~1.5"</li>
+          </ul>
+          <p className="text-sm italic">(Esta es una regla general; la sensación final depende del estilo de la pulsera).</p>
+          <p><strong>¿Usas reloj?</strong> Una pulsera ligeramente más delgada o un estilo de eslabón más limpio suele combinar mejor junto a un reloj.</p>
         </div>
       )
     },
     {
       id: 'earrings',
-      title_en: 'Earrings 101',
-      title_es: 'Guía de Aretes',
+      title_en: 'Earrings 101: Studs vs Hoops vs Huggies',
+      title_es: 'Aretes 101: Studs, Hoops y Huggies',
       content_en: (
         <div className="space-y-4">
-          <p><strong>Studs:</strong> Simple, elegant, and positioned directly on the earlobe. The ultimate everyday staple.</p>
-          <p><strong>Hoops:</strong> Circular loops that come in various diameters. Small hoops (huggies) sit close to the ear, while large hoops make a statement.</p>
-          <p><strong>Huggies:</strong> Tiny hoops that "hug" the earlobe. Excellent for second or third piercings.</p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong>Stud earrings:</strong> Sit snugly on the earlobe (no drop), usually simple and super versatile.</li>
+            <li><strong>Hoop earrings:</strong> Loop from the front of the earlobe to the back. Smaller hoops = understated, larger hoops = more dramatic.</li>
+            <li><strong>Huggie earrings:</strong> “Mini hoops” that wrap closely around the earlobe—great if you like the hoop look with less snag risk.</li>
+          </ul>
+          <p><strong>Quick picks:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Everyday + low maintenance: studs or huggies</li>
+            <li>More presence / dress up: hoops (medium/large)</li>
+          </ul>
+          <p><strong>Bonus:</strong> Hoops and huggies often use hinge backs that click shut—easy and secure.</p>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p><strong>Broqueles (Studs):</strong> Simples y elegantes. El accesorio esencial para todos los días.</p>
-          <p><strong>Arracadas (Hoops):</strong> Aros circulares en varios tamaños. Las arracadas grandes son perfectas para destacar.</p>
-          <p><strong>Huggies (Arracadas pequeñas):</strong> Arracadas diminutas que "abrazan" el lóbulo. Excelentes para perforaciones secundarias.</p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong>Broqueles (Studs):</strong> Se ajustan cómodamente en el lóbulo de la oreja (sin caída), generalmente simples y súper versátiles.</li>
+            <li><strong>Arracadas (Hoops):</strong> Hacen un lazo desde el frente del lóbulo hacia atrás. Pequeñas = sutiles, grandes = dramáticas.</li>
+            <li><strong>Huggies:</strong> "Mini arracadas" que abrazan de cerca el lóbulo—excelentes para un look de arracada con menos riesgo de enredarse.</li>
+          </ul>
+          <p><strong>Opciones rápidas:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Día a día + bajo mantenimiento: broqueles o huggies</li>
+            <li>Más presencia / elegancia: arracadas (medianas/grandes)</li>
+          </ul>
+          <p><strong>Bono:</strong> Las arracadas y huggies a menudo usan broches de bisagra que hacen "click"—fáciles y seguros.</p>
         </div>
       )
     },
     {
       id: 'diamonds',
-      title_en: 'Lab vs Natural Diamonds',
-      title_es: 'Diamantes Naturales vs Laboratorio',
+      title_en: 'Lab-Grown vs Natural Diamonds',
+      title_es: 'Diamantes de Laboratorio vs Naturales',
       content_en: (
         <div className="space-y-4">
-          <p><strong>Natural Diamonds:</strong> Formed deep within the Earth over billions of years. Valued for their rarity and historical significance. They hold long-term value exceptionally well.</p>
-          <p><strong>Lab-Grown Diamonds:</strong> Optically, chemically, and physically identical to natural diamonds but created in a laboratory in weeks. They offer excellent value, allowing you to get a larger stone for the same budget.</p>
+          <p><strong>What’s the same:</strong> Lab-grown diamonds are essentially chemically and optically the same as natural diamonds.</p>
+          <p><strong>What’s different:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>Origin:</strong> natural is mined; lab-grown is created in a controlled environment.</li>
+            <li><strong>Price/value:</strong> lab-grown typically offers more size/quality per dollar; natural often carries “rarity/story” appeal.</li>
+          </ul>
+          <p><strong>How to choose:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Want the best value for size/quality → lab-grown</li>
+            <li>Want rarity / tradition → natural</li>
+          </ul>
+          <p><em>Either way: prioritize transparency, specs, and reputable sourcing.</em></p>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p><strong>Diamantes Naturales:</strong> Formados en las profundidades de la Tierra durante miles de millones de años. Valiosos por su rareza y significado histórico.</p>
-          <p><strong>Diamantes de Laboratorio:</strong> Óptica, química y físicamente idénticos a los naturales, pero creados en laboratorio. Ofrecen un valor excelente, permitiendo obtener una piedra más grande por el mismo presupuesto.</p>
+          <p><strong>Qué es igual:</strong> Los diamantes de laboratorio son esencialmente química y ópticamente iguales a los naturales.</p>
+          <p><strong>Qué es diferente:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>Origen:</strong> el natural es extraído; el de laboratorio es creado en un ambiente controlado.</li>
+            <li><strong>Precio/valor:</strong> el de laboratorio típicamente ofrece más tamaño/calidad por tu dinero; el natural lleva el atractivo de "rareza/historia".</li>
+          </ul>
+          <p><strong>Cómo elegir:</strong></p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Quieres el mejor valor en tamaño/calidad → laboratorio</li>
+            <li>Quieres rareza / tradición → natural</li>
+          </ul>
+          <p><em>De cualquier modo: prioriza transparencia, especificaciones y fuentes confiables.</em></p>
         </div>
       )
     },
     {
       id: 'care',
-      title_en: 'Jewelry Care & Cleaning',
-      title_es: 'Cuidado y Limpieza',
+      title_en: 'Jewelry Care: Keep pieces looking new',
+      title_es: 'Cuidado de Joyas: Mantén todo como nuevo',
       content_en: (
         <div className="space-y-4">
-          <p><strong>Daily Care:</strong> Remove jewelry before exercising, swimming (chlorine/saltwater), or applying lotions and perfumes.</p>
-          <p><strong>Cleaning At Home:</strong> Soak your gold and diamond jewelry in warm water with a few drops of mild dish soap. Gently scrub with a very soft toothbrush, then rinse and pat dry.</p>
-          <p><strong>Storage:</strong> Store pieces individually in a soft pouch or lined jewelry box to prevent chains from tangling and diamonds from scratching other stones.</p>
+          <p><strong>Safest cleaning method (most pieces):</strong> Warm water + mild dish soap + a soft brush is a widely recommended safe approach. Rinse in a glass of water instead of directly in the sink to reduce the risk of losing stones. Dry with a soft, lint-free cloth.</p>
+          <p><strong>Diamonds:</strong> Can be cleaned with lint-free cloths, commercial jewelry cleaners, and household detergents. Extreme heat can damage diamonds.</p>
+          <p><strong>Storage:</strong> Store pieces separately to avoid scratching and tangling (especially chains).</p>
+          <p><strong>When to get a professional check:</strong> If a clasp feels loose, stones seem wobbly, or you wear a piece daily—get it inspected/cleaned professionally.</p>
         </div>
       ),
       content_es: (
         <div className="space-y-4">
-          <p><strong>Cuidado Diario:</strong> Quítate las joyas antes de hacer ejercicio, nadar (cloro/agua salada) o aplicar lociones y perfumes.</p>
-          <p><strong>Limpieza en Casa:</strong> Remoja tu joyería en agua tibia con unas gotas de jabón suave. Frota suavemente con un cepillo de dientes muy suave, enjuaga y seca.</p>
-          <p><strong>Almacenamiento:</strong> Guarda las piezas individualmente en una funda suave para evitar que las cadenas se enreden y los diamantes rayen otros metales.</p>
+          <p><strong>Método de limpieza más seguro (la mayoría de las piezas):</strong> Agua tibia + jabón suave + un cepillo de cerdas suaves. Enjuaga en un vaso de agua en vez del fregadero para evitar perder piedras. Seca con un paño suave sin pelusa.</p>
+          <p><strong>Diamantes:</strong> Pueden limpiarse con paños sin pelusa o limpiadores comerciales. El calor extremo puede dañarlos.</p>
+          <p><strong>Almacenamiento:</strong> Guarda las piezas por separado para evitar rayones y enredos (especialmente cadenas).</p>
+          <p><strong>Revisión profesional:</strong> Si un broche se siente flojo, una piedra inestable o usas la pieza a diario, llévala a inspección y limpieza profesional.</p>
         </div>
       )
     }

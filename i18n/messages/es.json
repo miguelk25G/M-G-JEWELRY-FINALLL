@@ -96,16 +96,20 @@
     "successMessage": "Hemos recibido tus preferencias. Nuestro equipo de concierge te enviarÃ¡ 3 recomendaciones personalizadas en 24 horas."
   },
   "education": {
-    "title": "EducaciÃ³n sobre JoyerÃ­a",
+    "title": "Educación sobre Joyería",
     "subtitle": "Aprende sobre calidad, cuidado y toma decisiones informadas",
-    "chainLengths": "GuÃ­a de Largos de Cadena",
-    "chainLengthsDesc": "Encuentra el largo perfecto para cualquier escote",
-    "karatGuide": "Oro 10K vs 14K vs 18K",
-    "karatGuideDesc": "Entendiendo la pureza y durabilidad del oro",
-    "labVsNatural": "Diamantes de Laboratorio vs Naturales",
-    "labVsNaturalDesc": "Toma una decisiÃ³n informada",
-    "careGuide": "GuÃ­a de Cuidado de Joyas",
-    "careGuideDesc": "MantÃ©n tus piezas brillantes por aÃ±os"
+    "karatGuide": "Oro 10K, 14K, 18K — ¿cuál es la diferencia?",
+    "karatGuideDesc": "El quilataje te dice cuánto oro puro hay en la aleación, lo que afecta el color, durabilidad y precio.",
+    "chainLengths": "El largo de la cadena cambia todo tu look.",
+    "chainLengthsDesc": "Usa el largo para controlar dónde descansa la cadena, cómo se ve en capas y cómo enmarca tu escote.",
+    "bracelets": "Encuentra el ajuste perfecto a la primera.",
+    "braceletsDesc": "Mide una vez, luego elige ajustado, cómodo o en capas.",
+    "earrings": "Tres básicos. Tres vibras diferentes.",
+    "earringsDesc": "Elige según la comodidad, movimiento y qué tan audaz quieres lucir.",
+    "labVsNatural": "Ambos son diamantes reales — la diferencia es el origen.",
+    "labVsNaturalDesc": "Los diamantes de laboratorio y naturales son química y ópticamente iguales, pero se producen de forma diferente.",
+    "careGuide": "Cuidado simple = larga vida.",
+    "careGuideDesc": "La mayoría de las joyas lucen mejor con una limpieza suave y un almacenamiento inteligente."
   },
   "trust": {
     "title": "Compra con Confianza",

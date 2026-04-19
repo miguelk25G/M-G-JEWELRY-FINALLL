@@ -1,30 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import { Ruler, Scale, Diamond, Sparkles, ArrowRight } from 'lucide-react'
+import { Ruler, Scale, Diamond, Sparkles, ArrowRight, Gem, Disc } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { useTranslation } from '@/i18n/locale-context'
 
 const guides = [
   {
-    key: 'chainLengths',
-    icon: Ruler,
-    href: '/education/chain-lengths',
-  },
-  {
     key: 'karatGuide',
     icon: Scale,
-    href: '/education/gold-karat',
+    href: '/education',
+  },
+  {
+    key: 'chainLengths',
+    icon: Ruler,
+    href: '/education',
+  },
+  {
+    key: 'bracelets',
+    icon: Disc,
+    href: '/education',
+  },
+  {
+    key: 'earrings',
+    icon: Sparkles,
+    href: '/education',
   },
   {
     key: 'labVsNatural',
     icon: Diamond,
-    href: '/education/lab-vs-natural',
+    href: '/education',
   },
   {
     key: 'careGuide',
     icon: Sparkles,
-    href: '/education/jewelry-care',
+    href: '/education',
   },
 ]
 
@@ -45,7 +55,7 @@ export function EducationSection() {
         </div>
 
         {/* Cards Grid */}
-        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {guides.map((guide) => (
             <Link key={guide.key} href={guide.href}>
               <Card className="group h-full border-border bg-card transition-colors hover:bg-secondary">

@@ -98,14 +98,18 @@
   "education": {
     "title": "Jewelry Education",
     "subtitle": "Learn about quality, care, and making informed choices",
-    "chainLengths": "Chain Length Guide",
-    "chainLengthsDesc": "Find the perfect length for any neckline",
-    "karatGuide": "10K vs 14K vs 18K Gold",
-    "karatGuideDesc": "Understanding gold purity and durability",
-    "labVsNatural": "Lab vs Natural Diamonds",
-    "labVsNaturalDesc": "Make an informed choice",
-    "careGuide": "Jewelry Care Guide",
-    "careGuideDesc": "Keep your pieces sparkling for years"
+    "karatGuide": "10K, 14K, 18K Gold — what’s the difference?",
+    "karatGuideDesc": "Gold karat tells you how much pure gold is in the alloy, which affects color, durability, and price.",
+    "chainLengths": "Chain length changes your whole look.",
+    "chainLengthsDesc": "Use length to control where the chain sits, how it layers, and how it frames your neckline.",
+    "bracelets": "Get the fit right the first time.",
+    "braceletsDesc": "Measure once, then choose snug vs comfort vs stack.",
+    "earrings": "Three staples. Three different vibes.",
+    "earringsDesc": "Choose based on comfort, movement, and how bold you want to look.",
+    "labVsNatural": "Both are real diamonds — the difference is origin.",
+    "labVsNaturalDesc": "Lab-grown and natural diamonds can be chemically and optically the same, but they’re produced differently.",
+    "careGuide": "Simple care = long life.",
+    "careGuideDesc": "Most jewelry looks best with gentle cleaning and smart storage."
   },
   "trust": {
     "title": "Shop With Confidence",
