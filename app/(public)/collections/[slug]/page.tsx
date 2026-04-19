@@ -105,9 +105,11 @@ export default async function CollectionPage({ params }: Props) {
   }
 
   let dbQuery = {}
+  let queryLimit: number | undefined = undefined
   
   if (collectionKey === 'best-sellers') {
     dbQuery = { isBestSeller: true, isActive: true }
+    queryLimit = 10
   } else if (collectionKey === 'diamond-rings') {
     dbQuery = { category: { equals: 'rings', mode: 'insensitive' }, isActive: true }
   } else {
@@ -116,7 +118,8 @@ export default async function CollectionPage({ params }: Props) {
 
   const dbProducts = await db.product.findMany({
       where: dbQuery as any,
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: queryLimit
   })
 
   // Format products

@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Eye, Copy, Loader2 } from "lucide-react"
 import { deleteProductAction } from "@/lib/actions/products"
+import { toast } from "sonner"
 
 type Product = {
   id: string
@@ -41,8 +42,16 @@ export function ProductsClient({ initialProducts }: { initialProducts: Product[]
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this product?")) return
     setIsDeleting(id)
-    await deleteProductAction(id)
-    setIsDeleting(null)
+    try {
+      await deleteProductAction(id)
+      toast.success("Product deleted successfully")
+      router.refresh()
+    } catch (error) {
+      console.error(error)
+      toast.error("Failed to delete product. It might be linked to an order.")
+    } finally {
+      setIsDeleting(null)
+    }
   }
 
   return (

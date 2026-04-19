@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { Instagram, Phone, MessageCircle } from 'lucide-react'
@@ -25,7 +25,7 @@ export function Footer() {
       { label: t('nav.about'), href: '/about' },
       { label: t('nav.whiteGlove'), href: '/white-glove' },
       { label: t('nav.education'), href: '/education' },
-      { label: t('nav.vip'), href: '/vip' },
+      { label: t('nav.vip'), href: '/mg-family' },
       { label: t('nav.contact'), href: '/contact' },
     ],
     support: [

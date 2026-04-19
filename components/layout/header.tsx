@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState } from 'react'
 import Link from 'next/link'
@@ -24,6 +24,7 @@ const navigation = [
   { key: 'chains', href: '/collections/chains' },
   { key: 'bracelets', href: '/collections/bracelets' },
   { key: 'earrings', href: '/collections/earrings' },
+  { key: 'bestSellers', href: '/collections/best-sellers' },
   { key: 'whiteGlove', href: '/white-glove' },
 ]
 

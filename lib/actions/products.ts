@@ -52,8 +52,14 @@ export async function createProductAction(formData: FormData) {
 }
 
 export async function deleteProductAction(id: string) {
-  await db.product.delete({
-    where: { id }
-  })
-  revalidatePath("/(protected-admin)/admin/products")
+  try {
+    await db.product.delete({
+      where: { id }
+    })
+    revalidatePath("/admin/products")
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to delete product:", error)
+    throw new Error("Failed to delete product")
+  }
 }
