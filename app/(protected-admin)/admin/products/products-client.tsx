@@ -43,14 +43,16 @@ export function ProductsClient({ initialProducts }: { initialProducts: Product[]
     if (!confirm("Are you sure you want to delete this product?")) return
     setIsDeleting(id)
     try {
-      await deleteProductAction(id)
-      toast.success("Product deleted successfully")
-      router.refresh()
+      const res = await deleteProductAction(id)
+      if (res && res.success) {
+        toast.success("Product deleted successfully")
+        router.refresh()
+      } else {
+        toast.error(res?.error || "Failed to delete product.")
+      }
     } catch (error: any) {
       console.error(error)
-      // Extract the error message from the Error object
-      const errorMsg = error instanceof Error ? error.message : "Failed to delete product"
-      toast.error(errorMsg)
+      toast.error("Failed to communicate with server.")
     } finally {
       setIsDeleting(null)
     }

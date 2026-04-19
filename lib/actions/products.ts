@@ -53,22 +53,20 @@ export async function createProductAction(formData: FormData) {
 
 export async function deleteProductAction(id: string) {
   try {
-    // Check for active orders linked to this product
+    // Check for active orders linked to this product comparing in lowercase
     const linkedItems = await db.orderItem.findMany({
       where: { productId: id },
       include: { order: true }
     })
     
-    const hasActiveOrders = linkedItems.some(item => 
-      item.order && 
-      item.order.status !== "completed" && 
-      item.order.status !== "cancelled" && 
-      item.order.status !== "delivered" &&
-      item.order.status !== "refunded"
-    )
+    const hasActiveOrders = linkedItems.some(item => {
+      if (!item.order) return false
+      const s = item.order.status.toLowerCase()
+      return s !== "completed" && s !== "cancelled" && s !== "delivered" && s !== "refunded"
+    })
     
     if (hasActiveOrders) {
-      throw new Error("Cannot delete product: It is linked to active (pending or processing) orders.")
+      return { success: false, error: "Cannot delete product: It is linked to active (pending or processing) orders." }
     }
 
     try {
@@ -76,13 +74,12 @@ export async function deleteProductAction(id: string) {
         where: { id }
       })
     } catch (dbError: any) {
-      // If we hit a foreign key constraint (P2003) or any strict relation error, it means we must preserve order history.
-      // So we do a "Soft Delete" by hiding it completely from the admin interface using a 'deleted-' prefix.
+      // Soft Delete fallback
       await db.product.update({
         where: { id },
         data: { 
           isActive: false, 
-          slug: `deleted-${id}-${Date.now()}` // Marks it as deleted for the query filter
+          slug: `deleted-${id}-${Date.now()}` 
         }
       })
     }
@@ -91,10 +88,6 @@ export async function deleteProductAction(id: string) {
     return { success: true }
   } catch (error: any) {
     console.error("Failed to delete product:", error)
-    if (error instanceof Error && error.message.includes("Cannot delete product")) {
-      throw error // Re-throw the specific validation error so it reaches the client if needed
-    }
-    const dbErr = error?.message ? error.message : String(error)
-    throw new Error("DB Exception: " + dbErr)
+    return { success: false, error: "Database exception occurred." }
   }
 }
