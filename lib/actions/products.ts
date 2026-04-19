@@ -53,6 +53,24 @@ export async function createProductAction(formData: FormData) {
 
 export async function deleteProductAction(id: string) {
   try {
+    // Check for active orders linked to this product
+    const linkedItems = await db.orderItem.findMany({
+      where: { productId: id },
+      include: { order: true }
+    })
+    
+    const hasActiveOrders = linkedItems.some(item => 
+      item.order && 
+      item.order.status !== "completed" && 
+      item.order.status !== "cancelled" && 
+      item.order.status !== "delivered" &&
+      item.order.status !== "refunded"
+    )
+    
+    if (hasActiveOrders) {
+      throw new Error("Cannot delete product: It is linked to active (pending or processing) orders.")
+    }
+
     await db.product.delete({
       where: { id }
     })
@@ -60,6 +78,9 @@ export async function deleteProductAction(id: string) {
     return { success: true }
   } catch (error) {
     console.error("Failed to delete product:", error)
+    if (error instanceof Error && error.message.includes("Cannot delete product")) {
+      throw error // Re-throw the specific validation error so it reaches the client if needed
+    }
     throw new Error("Failed to delete product")
   }
 }
