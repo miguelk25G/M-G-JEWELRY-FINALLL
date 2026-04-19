@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { BookOpen, Sparkles } from 'lucide-react'
 import { useTranslation } from '@/i18n/locale-context'
 import {
@@ -12,6 +13,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export default function EducationPage() {
   const { locale } = useTranslation()
+  const [openItem, setOpenItem] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    // Open the accordion section if a hash is present in the URL
+    if (window.location.hash) {
+      const hashItem = window.location.hash.substring(1)
+      setOpenItem(hashItem)
+    }
+    
+    // Listen for hash changes if user navigates within the same page
+    const handleHashChange = () => {
+      if (window.location.hash) {
+        setOpenItem(window.location.hash.substring(1))
+      }
+    }
+    
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
 
   const sections = [
     {
@@ -227,9 +247,23 @@ export default function EducationPage() {
             <CardDescription>{locale === 'es' ? 'Haz clic en un tema para expandir.' : 'Click on a topic to expand.'}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Accordion type="single" collapsible className="w-full">
+            <Accordion 
+              type="single" 
+              collapsible 
+              className="w-full"
+              value={openItem}
+              onValueChange={(val) => {
+                setOpenItem(val)
+                // Optional: update URL hash when user clicks manually without scrolling to top
+                if (val) {
+                  window.history.pushState(null, '', `#${val}`)
+                } else {
+                  window.history.pushState(null, '', window.location.pathname)
+                }
+              }}
+            >
               {sections.map((section) => (
-                <AccordionItem key={section.id} value={section.id}>
+                <AccordionItem key={section.id} value={section.id} id={section.id}>
                   <AccordionTrigger className="text-lg font-serif hover:text-accent transition-colors">
                     <span className="flex items-center gap-3">
                         <Sparkles className="h-4 w-4 text-accent/50" />

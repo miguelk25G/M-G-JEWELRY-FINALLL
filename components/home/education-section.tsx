@@ -9,32 +9,32 @@ const guides = [
   {
     key: 'karatGuide',
     icon: Scale,
-    href: '/education',
+    href: '/education#gold',
   },
   {
     key: 'chainLengths',
     icon: Ruler,
-    href: '/education',
+    href: '/education#chains',
   },
   {
     key: 'bracelets',
     icon: Disc,
-    href: '/education',
+    href: '/education#bracelets',
   },
   {
     key: 'earrings',
     icon: Sparkles,
-    href: '/education',
+    href: '/education#earrings',
   },
   {
     key: 'labVsNatural',
     icon: Diamond,
-    href: '/education',
+    href: '/education#diamonds',
   },
   {
     key: 'careGuide',
     icon: Sparkles,
-    href: '/education',
+    href: '/education#care',
   },
 ]
 
