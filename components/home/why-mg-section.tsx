@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { ShieldCheck, Truck, Headphones, RotateCcw } from 'lucide-react'
 import { BrandConfig } from '@/lib/config/brand'
@@ -35,8 +35,8 @@ export function WhyMgSection() {
       icon: RotateCcw,
       title_en: 'Clear Support & Returns',
       title_es: 'Soporte y Devoluciones',
-      desc_en: 'Hassle-free 30-day returns and a generous warranty on all jewelry.',
-      desc_es: 'Devoluciones sin problemas en 30 dÃ­as y garantÃ­a generosa en todas las joyas.',
+      desc_en: '14-day return window and a generous warranty on all jewelry.',
+      desc_es: 'Ventana de devoluciÃ³n de 14 dÃ­as y garantÃ­a generosa en todas las joyas.',
     }
   ]
 

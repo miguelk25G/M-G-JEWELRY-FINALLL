@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import Image from "next/image"
 import Link from "next/link"
@@ -39,10 +39,18 @@ const milestones = [
 ]
 
 export default function AboutPage() {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      {/* Coming Soon Overlay */}
+      <div className="absolute inset-0 z-50 bg-background/60 backdrop-blur-md flex flex-col items-center justify-center px-4 text-center">
+        <h2 className="text-4xl font-serif font-bold mb-4">{locale === 'es' ? 'Nuestra Historia' : 'Our Story'}</h2>
+        <p className="text-xl text-muted-foreground">{locale === 'es' ? 'Próximamente. Estamos escribiendo nuestra historia.' : 'Coming Soon. We are writing our history.'}</p>
+      </div>
+      
+      {/* Page Content (Blurred & Disabled) */}
+      <div className="opacity-40 pointer-events-none select-none overflow-hidden blur-[4px]">
       {/* Hero Section */}
       <section className="relative py-24 px-4 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent" />
@@ -156,7 +164,7 @@ export default function AboutPage() {
           </div>
         </div>
       </section>
+      </div>
     </div>
   )
 }
-

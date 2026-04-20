@@ -16,7 +16,7 @@ const BENEFITS = [
   { icon: Star, title_en: 'Early Access', title_es: 'Acceso Anticipado', desc_en: 'Shop new collections before the public release.', desc_es: 'Compra nuevas colecciones antes del lanzamiento público.' },
   { icon: Crown, title_en: 'Priority White-Glove', title_es: 'Prioridad White-Glove', desc_en: 'Skip the line for custom orders and consultations.', desc_es: 'Salta la fila para pedidos personalizados y consultas.' },
   { icon: Sparkles, title_en: 'Exclusive Pieces', title_es: 'Piezas Exclusivas', desc_en: 'Access to limited-edition vault drops.', desc_es: 'Acceso a lanzamientos limitados exclusivos.' },
-  { icon: Package, title_en: 'Shipping Perks', title_es: 'Beneficios de Envío', desc_en: 'Free insured overnight shipping with signature delivery.', desc_es: 'Envío asegurado gratis con entrega bajo firma.' },
+  { icon: Package, title_en: 'Shipping Perks', title_es: 'Beneficios de Envío', desc_en: 'Free insured shipping with signature delivery on purchases over $650.', desc_es: 'Envío asegurado gratis con entrega bajo firma en compras mayores a $650.' },
   { icon: Calendar, title_en: 'Private Events', title_es: 'Eventos Privados', desc_en: '(Coming Soon) Invites to private viewing events.', desc_es: '(Próximamente) Invitaciones a eventos privados.' },
 ]
 
@@ -84,7 +84,7 @@ export default function MgFamilyPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-serif font-medium mb-2">$2,000</div>
+              <div className="text-4xl font-serif font-medium mb-2">$2,500</div>
               <p className="text-muted-foreground">{locale === 'es' ? 'Inversión total acumulada' : 'Lifetime spend threshold'}</p>
             </CardContent>
           </Card>
