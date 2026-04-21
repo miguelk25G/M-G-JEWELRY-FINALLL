@@ -13,13 +13,15 @@ export function HeroSection() {
   return (
     <section className="relative min-h-[90vh] overflow-hidden">
       {/* Background Image */}
-      <div className="absolute inset-0">
-        <Image
-          src="/brand/hero-bg-pattern2.png"
-          alt="M&G Jewelry background pattern"
-          fill
-          className="object-cover object-center"
-          priority
+      <div className="absolute inset-0 bg-background">
+        <div 
+          className="absolute inset-0 opacity-60" 
+          style={{
+            backgroundImage: 'url(/brand/hero-bg-final.png)',
+            backgroundSize: '400px auto',
+            backgroundRepeat: 'repeat',
+            backgroundPosition: 'center'
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/40" />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
