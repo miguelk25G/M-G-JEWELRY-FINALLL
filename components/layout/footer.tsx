@@ -88,7 +88,7 @@ export function Footer() {
             <div className="mt-6 flex gap-3">
               <Button variant="outline" size="icon" asChild>
                 <a
-                  href="https://instagram.com/mgjewelry"
+                  href={BrandConfig.CONTACT.instagramUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Instagram"
@@ -98,7 +98,7 @@ export function Footer() {
               </Button>
               <Button variant="outline" size="icon" asChild>
                 <a
-                  href="https://wa.me/15551234567?text=Hi%2C%20I%27m%20interested%20in%20M%26G%20Jewelry"
+                  href={`https://wa.me/${BrandConfig.CONTACT.whatsappNumber.replace(/\+/g, '')}?text=Hi%2C%20I%27m%20interested%20in%20M%26G%20Jewelry`}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="WhatsApp"
@@ -107,7 +107,7 @@ export function Footer() {
                 </a>
               </Button>
               <Button variant="outline" size="icon" asChild>
-                <a href="tel:+15551234567" aria-label="Phone">
+                <a href={`tel:${BrandConfig.CONTACT.phoneNumber}`} aria-label="Phone">
                   <Phone className="h-4 w-4" />
                 </a>
               </Button>
