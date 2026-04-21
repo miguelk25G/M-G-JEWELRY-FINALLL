@@ -218,8 +218,13 @@
     "emptyMessage": "Guarda artÃ­culos que te gusten haciendo clic en el Ã­cono de corazÃ³n"
   },
   "contact": {
-    "title": "ContÃ¡ctanos",
-    "subtitle": "Nos encantarÃ­a saber de ti",
+    "title": "Contáctanos",
+    "subtitle": "Nos encantaría saber de ti",
+    "visitUs": "Visítanos",
+    "callUs": "Llámanos",
+    "emailUs": "Escríbenos",
+    "hours": "Horarios",
+    "comingSoon": "Próximamente...",
     "form": {
       "name": "Nombre",
       "namePlaceholder": "Tu nombre",

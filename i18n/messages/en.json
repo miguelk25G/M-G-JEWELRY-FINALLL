@@ -220,6 +220,11 @@
   "contact": {
     "title": "Contact Us",
     "subtitle": "We'd love to hear from you",
+    "visitUs": "Visit Us",
+    "callUs": "Call Us",
+    "emailUs": "Email Us",
+    "hours": "Business Hours",
+    "comingSoon": "Coming soon...",
     "form": {
       "name": "Name",
       "namePlaceholder": "Your name",

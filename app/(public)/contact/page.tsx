@@ -96,10 +96,8 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <h3 className="font-medium mb-1">{t("contact.visitUs")}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      123 Luxury Avenue
-                      <br />
-                      New York, NY 10001
+                    <p className="text-sm text-muted-foreground italic mt-1">
+                      {t("contact.comingSoon")}
                     </p>
                   </div>
                 </div>
@@ -168,10 +166,8 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <h3 className="font-medium mb-1">{t("contact.hours")}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Mon - Fri: 10am - 7pm
-                      <br />
-                      Sat - Sun: 11am - 6pm
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {t("contact.info.hoursValue")}
                     </p>
                   </div>
                 </div>
