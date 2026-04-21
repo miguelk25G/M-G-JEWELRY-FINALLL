@@ -18,7 +18,7 @@ export function HeroSection() {
           className="absolute inset-0 opacity-60" 
           style={{
             backgroundImage: 'url(/brand/hero-bg.png)',
-            backgroundSize: '400px auto',
+            backgroundSize: '600px auto',
             backgroundRepeat: 'repeat',
             backgroundPosition: 'center'
           }}
