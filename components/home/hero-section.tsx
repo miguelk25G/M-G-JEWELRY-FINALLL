@@ -76,18 +76,18 @@ export function HeroSection() {
         </div>
 
         {/* Stats */}
-        <div className="mt-16 grid grid-cols-3 gap-8 lg:mt-24">
+        <div className="mt-16 flex flex-col gap-8 sm:flex-row sm:flex-wrap sm:gap-12 lg:gap-24 lg:mt-24">
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat1Num')}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat1Desc')}</p>
+            <p className="font-serif text-2xl font-bold text-foreground lg:text-3xl">{t('hero.stat1Num')}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t('hero.stat1Desc')}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat2Num')}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat2Desc')}</p>
+            <p className="font-serif text-2xl font-bold text-foreground lg:text-3xl">{t('hero.stat2Num')}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t('hero.stat2Desc')}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-bold text-foreground lg:text-4xl">{t('hero.stat3Num')}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t('hero.stat3Desc')}</p>
+            <p className="font-serif text-2xl font-bold text-foreground lg:text-3xl">{t('hero.stat3Num')}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t('hero.stat3Desc')}</p>
           </div>
         </div>
       </div>
