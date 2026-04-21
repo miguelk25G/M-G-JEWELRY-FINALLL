@@ -1,6 +1,5 @@
 'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
@@ -9,13 +8,6 @@ interface LogoProps {
   className?: string
   size?: 'sm' | 'md' | 'lg' | 'xl'
   asLink?: boolean
-}
-
-const sizeMap = {
-  sm: { primary: 80, horizontal: 100, icon: 32, badge: 40 },
-  md: { primary: 120, horizontal: 150, icon: 40, badge: 56 },
-  lg: { primary: 160, horizontal: 200, icon: 48, badge: 72 },
-  xl: { primary: 200, horizontal: 250, icon: 64, badge: 96 },
 }
 
 export function Logo({ 
