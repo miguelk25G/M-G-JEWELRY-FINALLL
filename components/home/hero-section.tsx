@@ -15,25 +15,15 @@ export function HeroSection() {
       {/* Background Image */}
       <div className="absolute inset-0">
         <Image
-          src="https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=1920&q=90"
-          alt="Luxury diamond jewelry"
+          src="/brand/hero-bg-pattern.png"
+          alt="M&G Jewelry background pattern"
           fill
-          className="object-cover"
+          className="object-cover object-center"
           priority
         />
         <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/40" />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
-        {BrandConfig.PATTERN_ENABLED && (
-          <div 
-            className="absolute inset-0 pointer-events-none" 
-            style={{
-              backgroundImage: 'url(/brand/pattern-mg.png)',
-              opacity: BrandConfig.PATTERN_OPACITY,
-              backgroundSize: '300px 300px',
-              backgroundRepeat: 'repeat'
-            }}
-          />
-        )}
+
       </div>
 
       {/* Content */}
