@@ -134,7 +134,7 @@ export default function ContactPage() {
                     <h3 className="font-medium mb-1">Instagram</h3>
                     <p className="text-sm text-muted-foreground">
                       <a href={BrandConfig.CONTACT.instagramUrl} target="_blank" className="hover:underline">
-                         @mgjewelry
+                         @mngjewelry25k
                       </a>
                     </p>
                   </div>
