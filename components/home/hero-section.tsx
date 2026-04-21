@@ -15,7 +15,7 @@ export function HeroSection() {
       {/* Background Image */}
       <div className="absolute inset-0">
         <Image
-          src="/brand/hero-bg-pattern.png"
+          src="/brand/hero-bg-pattern2.png"
           alt="M&G Jewelry background pattern"
           fill
           className="object-cover object-center"
