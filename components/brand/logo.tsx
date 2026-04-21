@@ -24,32 +24,38 @@ export function Logo({
   size = 'md',
   asLink = true 
 }: LogoProps) {
-  const width = sizeMap[size][variant] || sizeMap.md.primary
-  const height = variant === 'horizontal' ? width * 0.4 : width * 0.6
-
-  let src = '/brand/logo.png' // fallback
-  if (variant === 'icon') {
-    src = '/brand/logo-icon.svg'
-  } else if (variant === 'horizontal' || variant === 'primary') {
-    src = '/brand/logo-horizontal.svg'
+  
+  const textSizes = {
+    sm: 'text-xl',
+    md: 'text-2xl',
+    lg: 'text-4xl',
+    xl: 'text-5xl',
+  }
+  
+  const iconSizes = {
+    sm: 'text-2xl',
+    md: 'text-3xl',
+    lg: 'text-5xl',
+    xl: 'text-6xl',
   }
 
   const logoContent = (
     <div className={cn('relative flex items-center', className)}>
-      <Image
-        src={src}
-        alt="M&G Jewelry Logo"
-        width={width}
-        height={height}
-        className="object-contain"
-        priority
-      />
+      {variant === 'icon' ? (
+        <span className={cn('font-serif font-bold text-foreground drop-shadow-sm', iconSizes[size] || iconSizes.md)}>
+          M&G
+        </span>
+      ) : (
+        <span className={cn('font-serif font-bold tracking-widest text-foreground drop-shadow-sm', textSizes[size] || textSizes.md)}>
+          M&G JEWELRY
+        </span>
+      )}
     </div>
   )
 
   if (asLink) {
     return (
-      <Link href="/" className="block">
+      <Link href="/" className="inline-block hover:opacity-90 transition-opacity">
         {logoContent}
       </Link>
     )
