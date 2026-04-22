@@ -1,7 +1,7 @@
 {
   "common": {
     "brandName": "M&G Jewelry",
-    "tagline": "Luxury All Time Jewelry",
+    "tagline": "Made for now. Meant forever.",
     "loading": "Loading...",
     "error": "Something went wrong",
     "success": "Success!",
@@ -43,7 +43,7 @@
   },
   "hero": {
     "headline": "Timeless Elegance, Crafted for You",
-    "subheadline": "Discover our curated collection of luxury all time jewelry. Each piece tells a story of exceptional craftsmanship and enduring beauty.",
+    "subheadline": "Discover our curated collection. Made for now. Meant forever. Each piece tells a story of exceptional craftsmanship and enduring beauty.",
     "shopBestSellers": "Shop Best Sellers",
     "whiteGlove": "White-Glove",
     "stat1Num": "Verified Metals",
