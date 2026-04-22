@@ -15,19 +15,19 @@ export function WhyMgSection() {
       title_en: 'Authenticity Promise',
       title_es: 'Promesa de Autenticidad',
       desc_en: 'Every piece is certified and meticulously inspected for uncompromising quality.',
-      desc_es: 'Cada pieza estÃ¡ certificada y meticulosamente inspeccionada para garantizar una calidad sin concesiones.',
+      desc_es: 'Cada pieza está certificada y meticulosamente inspeccionada para garantizar una calidad sin concesiones.',
     },
     {
       icon: Truck,
       title_en: 'Secure Shipping',
-      title_es: 'EnvÃ­os Seguros',
+      title_es: 'Envíos Seguros',
       desc_en: 'Fully insured, tracked, and discreetly packaged for your peace of mind.',
       desc_es: 'Totalmente asegurado, con seguimiento y empaquetado discretamente para su tranquilidad.',
     },
     {
       icon: Headphones,
       title_en: `${BrandConfig.SERVICE_NAME_EN} Guidance`,
-      title_es: `AsesorÃ­a ${BrandConfig.SERVICE_NAME_ES}`,
+      title_es: `Asesoría ${BrandConfig.SERVICE_NAME_ES}`,
       desc_en: 'Dedicated White-Glove team available to guide you through your purchase.',
       desc_es: 'Equipo dedicado disponible para asesorarte durante tu compra.',
     },
@@ -36,7 +36,7 @@ export function WhyMgSection() {
       title_en: 'Clear Support & Returns',
       title_es: 'Soporte y Devoluciones',
       desc_en: '14-day return window and a generous warranty on all jewelry.',
-      desc_es: 'Ventana de devoluciÃ³n de 14 dÃ­as y garantÃ­a generosa en todas las joyas.',
+      desc_es: 'Ventana de devolución de 14 días y garantía generosa en todas las joyas.',
     }
   ]
 
@@ -45,7 +45,7 @@ export function WhyMgSection() {
       <div className="mx-auto max-w-7xl px-4 lg:px-8 relative z-10">
         <div className="mb-16 text-center">
           <h2 className="font-serif text-3xl font-bold md:text-4xl">
-            {locale === 'es' ? 'Â¿Por quÃ© elegir M&G?' : 'Why Choose M&G?'}
+            {locale === 'es' ? '¿Por qué elegir M&G?' : 'Why Choose M&G?'}
           </h2>
         </div>
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
