@@ -151,16 +151,16 @@ export default function EducationPage() {
       content_es: (
         <div className="space-y-4">
           <ul className="list-disc pl-5 space-y-2">
-            <li><strong>Broqueles (Studs):</strong> Se ajustan cómodamente en el lóbulo de la oreja (sin caída), generalmente simples y súper versátiles.</li>
-            <li><strong>Arracadas (Hoops):</strong> Hacen un lazo desde el frente del lóbulo hacia atrás. Pequeñas = sutiles, grandes = dramáticas.</li>
-            <li><strong>Huggies:</strong> "Mini arracadas" que abrazan de cerca el lóbulo—excelentes para un look de arracada con menos riesgo de enredarse.</li>
+            <li><strong>Aretes de botón (Studs):</strong> Se ajustan cómodamente en el lóbulo de la oreja (sin caída), generalmente simples y súper versátiles.</li>
+            <li><strong>Aretes de argolla (Hoops):</strong> Hacen un lazo desde el frente del lóbulo hacia atrás. Pequeños = sutiles, grandes = dramáticos.</li>
+            <li><strong>Huggies:</strong> "Aretes de clip" que abrazan de cerca el lóbulo—excelentes para un look de argolla con menos riesgo de enredarse.</li>
           </ul>
           <p><strong>Opciones rápidas:</strong></p>
           <ul className="list-disc pl-5 space-y-1">
-            <li>Día a día + bajo mantenimiento: broqueles o huggies</li>
-            <li>Más presencia / elegancia: arracadas (medianas/grandes)</li>
+            <li>Día a día + bajo mantenimiento: aretes de botón o huggies</li>
+            <li>Más presencia / elegancia: aretes de argolla (medianos/grandes)</li>
           </ul>
-          <p><strong>Bono:</strong> Las arracadas y huggies a menudo usan broches de bisagra que hacen "click"—fáciles y seguros.</p>
+          <p><strong>Bono:</strong> Los aretes de argolla y huggies a menudo usan broches de bisagra que hacen "click"—fáciles y seguros.</p>
         </div>
       )
     },
