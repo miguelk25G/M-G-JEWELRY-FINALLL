@@ -153,7 +153,7 @@ export default function EducationPage() {
           <ul className="list-disc pl-5 space-y-2">
             <li><strong>Aretes de botón (Studs):</strong> Se ajustan cómodamente en el lóbulo de la oreja (sin caída), generalmente simples y súper versátiles.</li>
             <li><strong>Aretes de argolla (Hoops):</strong> Hacen un lazo desde el frente del lóbulo hacia atrás. Pequeños = sutiles, grandes = dramáticos.</li>
-            <li><strong>Huggies:</strong> "Aretes de clip" que abrazan de cerca el lóbulo—excelentes para un look de argolla con menos riesgo de enredarse.</li>
+            <li><strong>Aretes de clip (Huggies):</strong> Abrazan de cerca el lóbulo—excelentes para un look de argolla con menos riesgo de enredarse.</li>
           </ul>
           <p><strong>Opciones rápidas:</strong></p>
           <ul className="list-disc pl-5 space-y-1">
