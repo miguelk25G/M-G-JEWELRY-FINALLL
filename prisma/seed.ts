@@ -21,7 +21,7 @@ async function main() {
       taglineEs: 'Joyería de Diamantes de Lujo',
       contactEmail: 'info@mgjewelry.com',
       contactPhone: '+1 (555) 123-4567',
-      whatsappNumber: '+15551234567',
+      whatsappNumber: '+15125760229',
       instagramUrl: 'https://instagram.com/mgjewelry',
       defaultCurrency: 'USD',
       defaultLocale: 'en',

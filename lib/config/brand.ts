@@ -16,8 +16,8 @@ export const BrandConfig = {
   // Contact Information
   CONTACT: {
     instagramUrl: process.env.NEXT_PUBLIC_INSTAGRAM_URL || 'https://instagram.com/mngjewelry25k',
-    whatsappNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '+1234567890',
-    phoneNumber: process.env.NEXT_PUBLIC_PHONE_NUMBER || '+1234567890',
+    whatsappNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '+15125760229',
+    phoneNumber: process.env.NEXT_PUBLIC_PHONE_NUMBER || '+15125760229',
     supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'mngjewerly25k@gmail.com',
   }
 }

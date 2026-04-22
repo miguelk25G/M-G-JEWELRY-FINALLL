@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, Search, ShoppingBag, Heart, User, X, ChevronDown } from 'lucide-react'
+import { Menu, Search, ShoppingBag, Heart, User, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import {
@@ -42,18 +42,15 @@ export function Header() {
         <div className="flex lg:hidden">
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="-m-2.5">
+              <Button variant="ghost" size="icon" className="-m-2.5 w-12 h-12">
                 <span className="sr-only">Open menu</span>
-                <Menu className="h-6 w-6" />
+                <Menu className="!h-8 !w-8" />
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-full max-w-xs bg-background">
               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between pt-1">
                 <Logo variant="icon" size="sm" />
-                <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)}>
-                  <X className="h-6 w-6" />
-                </Button>
               </div>
               <div className="mt-6 flow-root">
                 <div className="-my-6 divide-y divide-border">
