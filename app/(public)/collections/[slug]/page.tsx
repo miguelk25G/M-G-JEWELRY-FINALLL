@@ -131,7 +131,7 @@ export default async function CollectionPage({ params }: Props) {
 
   return (
     <CollectionContent
-      collection={finalCollectionInfo}
+      collection={finalCollectionInfo as any}
       products={formattedProducts as any}
       locale={locale} // Explicitly pass the locale so client reads it accurately
     />

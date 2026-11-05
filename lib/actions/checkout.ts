@@ -1,10 +1,557 @@
 "use server"
 
 import { db } from "@/lib/db"
+import { getStripe } from "@/lib/stripe"
+import { calculateOrderTotals } from "@/lib/config/pricing"
+import Stripe from "stripe"
 
+export interface CartItemInput {
+  productId: string
+  quantity: number
+  size?: string
+}
+
+/**
+ * Creates a Stripe Checkout Session with server-verified prices, inventory reservation,
+ * and transactional concurrency protection against race conditions.
+ */
+export async function createStripeCheckoutSession(formData: FormData, cartItems: CartItemInput[]) {
+  try {
+    // 1. Extract and sanitize customer details
+    const firstName = (formData.get("firstName") as string || "").trim()
+    const lastName = (formData.get("lastName") as string || "").trim()
+    const email = (formData.get("email") as string || "").trim().toLowerCase()
+    const phonePrefix = (formData.get("phonePrefix") as string || "+1").trim()
+    const phoneDigits = (formData.get("phoneDigits") as string || "").trim()
+    const phone = phoneDigits ? `${phonePrefix} ${phoneDigits}` : null
+    const address = (formData.get("address") as string || "").trim()
+    const address2 = (formData.get("address2") as string || "").trim()
+    const city = (formData.get("city") as string || "").trim()
+    const state = (formData.get("state") as string || "").trim()
+    const zip = (formData.get("zip") as string || "").trim()
+    const country = (formData.get("country") as string || "US").trim()
+    const appliedPromoCode = (formData.get("promoCode") as string || "").trim().toUpperCase()
+
+    // Basic server validation
+    if (!email || !firstName || !lastName || !address || !city || !state || !zip) {
+      return { success: false, error: "Por favor completa todos los campos obligatorios de envío y contacto." }
+    }
+
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      return { success: false, error: "Tu carrito de compras está vacío." }
+    }
+
+    // 2. Validate items structure & quantities
+    for (const it of cartItems) {
+      if (!it.productId || typeof it.quantity !== "number" || it.quantity <= 0 || !Number.isInteger(it.quantity)) {
+        return { success: false, error: "Cantidades de producto inválidas en el carrito." }
+      }
+    }
+
+    // Combine full address JSON
+    const shippingAddressObj = {
+      street: address,
+      apt: address2 || null,
+      city,
+      state,
+      zip,
+      country,
+    }
+    const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
+    const customerName = `${firstName} ${lastName}`
+
+    // 3. Database validation & transactional inventory reservation
+    // To prevent race conditions where two concurrent buyers try to buy the last unit,
+    // we atomically decrement inventoryQty inside db.$transaction with a conditional filter `inventoryQty >= requestedQty`.
+    const reservationResult = await db.$transaction(async (tx: any) => {
+      const productIds = cartItems.map((item) => item.productId)
+      const dbProducts = await tx.product.findMany({
+        where: { id: { in: productIds } },
+      })
+
+      const productMap = new Map<string, any>(dbProducts.map((p: any) => [p.id, p]))
+
+      // Verify each item
+      const verifiedItems: {
+        product: typeof dbProducts[0]
+        quantity: number
+        size?: string
+        unitPrice: number
+      }[] = []
+
+      let rawSubtotal = 0
+
+      for (const item of cartItems) {
+        const product = productMap.get(item.productId)
+        if (!product || !product.isActive) {
+          throw new Error(`El producto seleccionado ya no está disponible.`)
+        }
+
+        // Validate variants/sizes if defined on product
+        if (item.size && product.sizes) {
+          try {
+            const availableSizes = JSON.parse(product.sizes)
+            if (Array.isArray(availableSizes) && availableSizes.length > 0 && !availableSizes.includes(item.size)) {
+              throw new Error(`La talla seleccionada (${item.size}) para "${product.name}" ya no está disponible.`)
+            }
+          } catch (e) {
+            // Ignore JSON parse error on malformed sizes
+          }
+        }
+
+        // Atomically decrement inventory with strict condition: inventoryQty >= requested quantity
+        const updateResult = await tx.product.updateMany({
+          where: {
+            id: product.id,
+            inventoryQty: { gte: item.quantity },
+            isActive: true,
+          },
+          data: {
+            inventoryQty: { decrement: item.quantity },
+          },
+        })
+
+        if (updateResult.count === 0) {
+          throw new Error(
+            `No hay inventario suficiente para "${product.name}". (Disponibles: ${product.inventoryQty})`
+          )
+        }
+
+        const unitPrice = product.price
+        rawSubtotal += unitPrice * item.quantity
+
+        verifiedItems.push({
+          product,
+          quantity: item.quantity,
+          size: item.size,
+          unitPrice,
+        })
+      }
+
+      // Validate Promo / Discount code
+      let discountAmount = 0
+      let validPromoCode = ""
+
+      if (appliedPromoCode) {
+        const discountRecord = await tx.discountCode.findUnique({
+          where: { code: appliedPromoCode },
+        })
+
+        if (discountRecord && discountRecord.isActive) {
+          const isNotExpired = !discountRecord.expiresAt || new Date(discountRecord.expiresAt) > new Date()
+          const hasUsesLeft = discountRecord.maxUses === null || discountRecord.usedCount < discountRecord.maxUses
+
+          if (isNotExpired && hasUsesLeft) {
+            if (discountRecord.discountType === "percentage") {
+              discountAmount = rawSubtotal * (discountRecord.discountValue / 100)
+            } else {
+              discountAmount = Math.min(discountRecord.discountValue, rawSubtotal)
+            }
+            validPromoCode = discountRecord.code
+
+            // Increment discount code usage
+            await tx.discountCode.update({
+              where: { id: discountRecord.id },
+              data: { usedCount: { increment: 1 } },
+            })
+          }
+        }
+      }
+
+      // Calculate totals using centralized pricing config
+      const pricing = calculateOrderTotals({
+        subtotal: rawSubtotal,
+        discountAmount,
+      })
+
+      // Ensure customer User record exists
+      let user = await tx.user.findUnique({ where: { email } })
+      if (!user) {
+        user = await tx.user.create({
+          data: {
+            email,
+            name: customerName,
+            role: "customer",
+          },
+        })
+      }
+
+      // Generate order number
+      const orderNumber = `MG-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`
+
+      // Create Order in DB
+      const order = await tx.order.create({
+        data: {
+          orderNumber,
+          customerName,
+          email,
+          phone,
+          subtotal: pricing.rawSubtotal,
+          discount: pricing.discountAmount,
+          tax: pricing.tax,
+          shipping: pricing.shipping,
+          total: pricing.total,
+          currency: "USD",
+          status: "pending",
+          shippingAddress: JSON.stringify(shippingAddressObj),
+          billingAddress: JSON.stringify(shippingAddressObj),
+          notes: `Stripe Checkout pending${validPromoCode ? ` | Promo: ${validPromoCode}` : ''}`,
+          items: {
+            create: verifiedItems.map((vi) => ({
+              productId: vi.product.id,
+              name: vi.product.name,
+              quantity: vi.quantity,
+              price: vi.unitPrice,
+              size: vi.size || null,
+            })),
+          },
+        },
+      })
+
+      return {
+        order,
+        verifiedItems,
+        pricing,
+        validPromoCode,
+      }
+    })
+
+    const { order, verifiedItems, pricing, validPromoCode } = reservationResult
+
+    // 4. Create Stripe Checkout Session
+    let session: Stripe.Checkout.Session
+    try {
+      const stripeInstance = getStripe()
+
+      // Line items for products
+      const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = verifiedItems.map((vi: any) => {
+        let imageUrl: string | undefined = undefined
+        try {
+          const imgs = JSON.parse(vi.product.images)
+          if (Array.isArray(imgs) && imgs[0]) imageUrl = imgs[0]
+        } catch {
+          // Ignore
+        }
+
+        return {
+          price_data: {
+            currency: (vi.product.currency || "USD").toLowerCase(),
+            product_data: {
+              name: vi.product.name,
+              images: imageUrl ? [imageUrl] : undefined,
+              description: vi.size ? `Size: ${vi.size}` : undefined,
+            },
+            unit_amount: Math.round(vi.unitPrice * 100),
+          },
+          quantity: vi.quantity,
+        }
+      })
+
+      // Add sales tax line item if applicable (8% estimated)
+      if (pricing.tax > 0) {
+        line_items.push({
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: "Estimated Sales Tax (8%)",
+              description: "Standard state and local sales tax",
+            },
+            unit_amount: Math.round(pricing.tax * 100),
+          },
+          quantity: 1,
+        })
+      }
+
+      // Apply coupon in Stripe if promo code applied
+      let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
+      if (pricing.discountAmount > 0) {
+        const coupon = await stripeInstance.coupons.create({
+          amount_off: Math.round(pricing.discountAmount * 100),
+          currency: "usd",
+          duration: "once",
+          name: `Promo Code: ${validPromoCode}`,
+        })
+        discounts = [{ coupon: coupon.id }]
+      }
+
+      // Base URL for redirects
+      const hostUrl =
+        process.env.NEXTAUTH_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+
+      session = await stripeInstance.checkout.sessions.create({
+        payment_method_types: ["card"],
+        mode: "payment",
+        customer_email: email,
+        client_reference_id: order.id,
+        line_items,
+        discounts,
+        shipping_options: [
+          {
+            shipping_rate_data: {
+              type: "fixed_amount",
+              fixed_amount: {
+                amount: Math.round(pricing.shipping * 100),
+                currency: "usd",
+              },
+              display_name:
+                pricing.shipping === 0
+                  ? "Complimentary Fully Insured Delivery"
+                  : "Standard Insured Jewelry Shipping",
+              delivery_estimate: {
+                minimum: { unit: "business_day", value: 3 },
+                maximum: { unit: "business_day", value: 5 },
+              },
+            },
+          },
+        ],
+        success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          promoCode: validPromoCode,
+        },
+      })
+    } catch (stripeError: any) {
+      console.error("[Stripe Checkout Error]", stripeError)
+
+      // Rollback inventory reservation if Stripe session creation fails
+      await db.$transaction(async (tx: any) => {
+        for (const item of verifiedItems) {
+          await tx.product.update({
+            where: { id: item.product.id },
+            data: { inventoryQty: { increment: item.quantity } },
+          })
+        }
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: "cancelled", notes: "Stripe session creation failed; inventory released." },
+        })
+      })
+
+      return {
+        success: false,
+        error: `Error al conectar con la pasarela de pago: ${stripeError.message || stripeError}`,
+      }
+    }
+
+    // 5. Create initial pending Transaction record linked to order
+    await db.transaction.create({
+      data: {
+        orderId: order.id,
+        provider: "stripe",
+        providerId: session.id,
+        status: "pending",
+        amount: pricing.total,
+        currency: "USD",
+        metadata: JSON.stringify({
+          sessionId: session.id,
+          orderNumber: order.orderNumber,
+          stripeUrl: session.url,
+          initiatedAt: new Date().toISOString(),
+        }),
+      },
+    })
+
+    return {
+      success: true,
+      url: session.url,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    }
+  } catch (err: any) {
+    console.error("Create Stripe Checkout session error:", err)
+    return { success: false, error: String(err.message || err) }
+  }
+}
+
+/**
+ * Verifies that a payment was confirmed by Stripe for the given session ID.
+ * Returns order details to the success page.
+ */
+export async function verifyStripePayment(sessionId: string) {
+  try {
+    if (!sessionId) {
+      return { success: false, error: "Missing session ID" }
+    }
+
+    const stripeInstance = getStripe()
+    const session = await stripeInstance.checkout.sessions.retrieve(sessionId, {
+      expand: ["payment_intent", "line_items"],
+    })
+
+    if (session.payment_status !== "paid") {
+      return {
+        success: false,
+        error: "El pago aún no ha sido confirmado por Stripe.",
+        paymentStatus: session.payment_status,
+      }
+    }
+
+    const orderId = session.client_reference_id || session.metadata?.orderId
+
+    let order = null
+    if (orderId) {
+      order = await db.order.findUnique({
+        where: { id: orderId },
+        include: { items: true, transactions: true },
+      })
+    } else {
+      const tx = await db.transaction.findFirst({
+        where: { providerId: session.id },
+        include: { order: { include: { items: true, transactions: true } } },
+      })
+      if (tx) order = tx.order
+    }
+
+    if (!order) {
+      return { success: false, error: "No se encontró el pedido correspondiente." }
+    }
+
+    // Ensure database records are marked paid/processing
+    if (order.status === "pending" || order.status === "pending_concierge") {
+      await db.$transaction(async (tx: any) => {
+        await tx.order.update({
+          where: { id: order!.id },
+          data: { status: "processing" },
+        })
+
+        const existingTx = order!.transactions.find((t: any) => t.providerId === session.id)
+        if (existingTx && existingTx.status !== "succeeded") {
+          await tx.transaction.update({
+            where: { id: existingTx.id },
+            data: {
+              status: "succeeded",
+              providerId: (session.payment_intent as any)?.id || session.id,
+              metadata: JSON.stringify({
+                sessionId: session.id,
+                confirmedBy: "checkout_success_page",
+                confirmedAt: new Date().toISOString(),
+              }),
+            },
+          })
+        }
+      })
+    }
+
+    let parsedAddress = null
+    try {
+      parsedAddress = JSON.parse(order.shippingAddress)
+    } catch {
+      parsedAddress = order.shippingAddress
+    }
+
+    return {
+      success: true,
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        email: order.email,
+        total: order.total,
+        subtotal: order.subtotal,
+        shipping: order.shipping,
+        tax: order.tax,
+        discount: order.discount,
+        items: order.items,
+        shippingAddress: parsedAddress,
+        createdAt: order.createdAt,
+      },
+    }
+  } catch (err: any) {
+    console.error("Verify payment error:", err)
+    return { success: false, error: String(err.message || err) }
+  }
+}
+
+/**
+ * Handles explicit cancellation when returning from Stripe Cancel URL.
+ * Restocks reserved inventory and marks order cancelled.
+ */
+export async function cancelStripeCheckout(sessionId: string) {
+  try {
+    if (!sessionId) return { success: false }
+
+    const txRecord = await db.transaction.findFirst({
+      where: { providerId: sessionId },
+      include: { order: { include: { items: true, transactions: true } } },
+    })
+
+    if (!txRecord || !txRecord.order) return { success: false }
+
+    const order = txRecord.order
+    const isPaid = order.transactions.some((t: any) => t.status === "succeeded")
+
+    if (!isPaid && order.status !== "cancelled") {
+      await db.$transaction(async (tx: any) => {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: "cancelled",
+            notes: order.notes ? `${order.notes} | Cancelled by user. Restocked.` : "Cancelled by user. Restocked.",
+          },
+        })
+
+        await tx.transaction.update({
+          where: { id: txRecord.id },
+          data: { status: "failed" },
+        })
+
+        for (const item of order.items) {
+          if (item.productId) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { inventoryQty: { increment: item.quantity } },
+            })
+          }
+        }
+      })
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error("Cancel checkout error:", err)
+    return { success: false }
+  }
+}
+
+/**
+ * Validates a promo discount code for checkout UI display.
+ */
+export async function applyPromoCode(code: string) {
+  try {
+    const codeStr = code.toUpperCase().trim()
+    const discount = await db.discountCode.findUnique({ where: { code: codeStr } })
+
+    if (!discount || !discount.isActive) {
+      return { success: false, error: "El código no es válido o ha expirado." }
+    }
+
+    if (discount.expiresAt && new Date(discount.expiresAt) < new Date()) {
+      return { success: false, error: "Este código de descuento ha expirado." }
+    }
+
+    if (discount.maxUses !== null && discount.usedCount >= discount.maxUses) {
+      return { success: false, error: "Este código ya alcanzó su límite de uso." }
+    }
+
+    return {
+      success: true,
+      discountType: discount.discountType,
+      discountValue: discount.discountValue,
+      code: discount.code,
+    }
+  } catch (err: any) {
+    return { success: false, error: String(err) }
+  }
+}
+
+/**
+ * Backward compatibility: Concierge / White-Glove WhatsApp order flow.
+ */
 export async function submitConciergeOrder(formData: FormData, cartItems: any[]) {
   try {
-    // Extract user details
     const firstName = formData.get("firstName") as string
     const lastName = formData.get("lastName") as string
     const email = formData.get("email") as string
@@ -17,63 +564,59 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
     const state = formData.get("state") as string
     const zip = formData.get("zip") as string
     const country = formData.get("country") as string
-    const appliedPromoCode = formData.get("promoCode") as string || ""
+    const appliedPromoCode = (formData.get("promoCode") as string) || ""
 
-    // Combine full address
-    const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
+    const fullAddress = `${address} ${address2 ? address2 + " " : ""}${city}, ${state} ${zip}, ${country}`
     const customerName = `${firstName} ${lastName}`
 
-    // Verify products exist and protect against ghost carts or deleted products
     const validProducts = await db.product.findMany({
       where: {
-        id: { in: cartItems.map(item => item.productId) }
-      }
+        id: { in: cartItems.map((item) => item.productId) },
+      },
     })
 
-    const validCartItems = cartItems.filter(item => validProducts.some(p => p.id === item.productId))
+    const validCartItems = cartItems.filter((item) =>
+      validProducts.some((p: any) => p.id === item.productId)
+    )
 
     if (validCartItems.length === 0) {
-      return { 
-        success: false, 
-        error: `Tus productos ya no se encuentran disponibles o la sesión expiró. \nDebug INFO:\ncartItems passed: ${JSON.stringify(cartItems)}\nIDs searched: ${JSON.stringify(cartItems.map(i => i.productId))}\nFound in DB: ${JSON.stringify(validProducts)}` 
+      return {
+        success: false,
+        error: "Tus productos ya no se encuentran disponibles o la sesión expiró.",
       }
     }
 
-    // Calculate cart total accurately 
     let subtotal = 0
     validCartItems.forEach((item) => {
-      subtotal += item.price * item.quantity
+      const prod = validProducts.find((p: any) => p.id === item.productId)
+      subtotal += (prod?.price || item.price) * item.quantity
     })
-    
-    // Process Discount
+
     let discountAmount = 0
     let discountDisplay = ""
 
     if (appliedPromoCode) {
-      const dbDiscount = await db.discountCode.findUnique({ where: { code: appliedPromoCode.toUpperCase() } })
+      const dbDiscount = await db.discountCode.findUnique({
+        where: { code: appliedPromoCode.toUpperCase() },
+      })
       if (dbDiscount && dbDiscount.isActive) {
-        if (dbDiscount.discountType === 'percentage') {
+        if (dbDiscount.discountType === "percentage") {
           discountAmount = subtotal * (dbDiscount.discountValue / 100)
           discountDisplay = `${dbDiscount.code} (-${dbDiscount.discountValue}%)`
         } else {
           discountAmount = dbDiscount.discountValue
           discountDisplay = `${dbDiscount.code} (-$${dbDiscount.discountValue})`
         }
-        
-        // Increase used count safely
+
         await db.discountCode.update({
           where: { id: dbDiscount.id },
-          data: { usedCount: { increment: 1 } }
+          data: { usedCount: { increment: 1 } },
         })
       }
     }
 
-    const discountedSubtotal = Math.max(0, subtotal - discountAmount)
-    const shipping = discountedSubtotal > 500 ? 0 : 25
-    const tax = discountedSubtotal * 0.08
-    const total = discountedSubtotal + shipping + tax
+    const totals = calculateOrderTotals({ subtotal, discountAmount })
 
-    // Create or Find User
     let user = await db.user.findUnique({ where: { email } })
     if (!user) {
       user = await db.user.create({
@@ -81,91 +624,64 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
           email,
           name: customerName,
           role: "customer",
-        }
+        },
       })
     }
 
-    // Create Order
-    const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`
+    const orderNumber = `CONCIERGE-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000)}`
 
     const order = await db.order.create({
       data: {
-        orderNumber: orderNumber,
-        customerName: customerName,
-        email: email,
-        phone: phone,
-        subtotal,
-        discount: discountAmount,
-        tax,
-        shipping,
-        total,
+        orderNumber,
+        customerName,
+        email,
+        phone,
+        subtotal: totals.rawSubtotal,
+        discount: totals.discountAmount,
+        tax: totals.tax,
+        shipping: totals.shipping,
+        total: totals.total,
         status: "pending_concierge",
         shippingAddress: fullAddress,
+        notes: "Concierge WhatsApp order",
         items: {
-          create: validCartItems.map(item => ({
+          create: validCartItems.map((item) => ({
             productId: item.productId,
             name: item.name,
             quantity: item.quantity,
             price: item.price,
-            size: item.size || null
-          }))
-        }
-      }
+            size: item.size || null,
+          })),
+        },
+      },
     })
 
-    // Format the WhatsApp Message string
     let waMessage = `✨ *New Concierge Order Request* ✨\n\n`
     waMessage += `*Order ID:* ${order.orderNumber}\n`
     waMessage += `*Customer:* ${customerName}\n`
     waMessage += `*Email:* ${email}\n`
     waMessage += `*Phone:* ${phone}\n\n`
     waMessage += `*Items:*\n`
-    
-    validCartItems.forEach(item => {
-      waMessage += `- ${item.quantity}x ${item.name} (${item.size || 'N/A'}) - $${item.price}\n`
+
+    validCartItems.forEach((item) => {
+      waMessage += `- ${item.quantity}x ${item.name} (${item.size || "N/A"}) - $${item.price}\n`
     })
 
     if (discountAmount > 0) {
       waMessage += `\n*Promo Applied:* ${discountDisplay} (-$${discountAmount.toFixed(2)})\n`
     }
-    waMessage += `\n*Total:* $${total.toFixed(2)}\n\n`
+    waMessage += `\n*Total:* $${totals.total.toFixed(2)}\n\n`
     waMessage += `Hello! I would like to acquire these exquisite pieces and arrange the payment.`
 
-    // Fetch dynamic WhatsApp Number from settings
     const settings = await db.siteSettings.findUnique({ where: { id: "main" } })
-    const waNumber = settings?.whatsappNumber?.replace(/\D/g, '') || "15125760229"
+    const waNumber = settings?.whatsappNumber?.replace(/\D/g, "") || "15125760229"
 
-    // URL Encode the WhatsApp Message
     const encodedText = encodeURIComponent(waMessage)
     const waLink = `https://wa.me/${waNumber}?text=${encodedText}`
 
     return { success: true, orderId: order.id, waLink }
   } catch (error: any) {
-    console.error("Backend checkout error:", error)
+    console.error("Concierge checkout error:", error)
     return { success: false, error: String(error.message || error) }
-  }
-}
-
-export async function applyPromoCode(code: string) {
-  try {
-    const codeStr = code.toUpperCase().trim()
-    const discount = await db.discountCode.findUnique({ where: { code: codeStr } })
-    
-    if (!discount || !discount.isActive) {
-      return { success: false, error: "El código no es válido o ha expirado." }
-    }
-    
-    if (discount.maxUses !== null && discount.usedCount >= discount.maxUses) {
-      return { success: false, error: "Este código ya alcanzó su límite de uso." }
-    }
-
-    return { 
-      success: true, 
-      discountType: discount.discountType, 
-      discountValue: discount.discountValue,
-      code: discount.code
-    }
-  } catch (err: any) {
-    return { success: false, error: String(err) }
   }
 }

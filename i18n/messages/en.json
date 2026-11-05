@@ -189,7 +189,9 @@
     "payment": "Payment",
     "review": "Review Order",
     "placeOrder": "Place Order",
-    "processing": "Processing..."
+    "processing": "Processing...",
+    "paySecurely": "Pay securely",
+    "stripeNotice": "Encrypted 256-bit checkout powered by Stripe"
   },
   "search": {
     "title": "Search",

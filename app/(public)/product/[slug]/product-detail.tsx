@@ -286,11 +286,11 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
               </Button>
             </div>
 
-            {/* Ask Concierge */}
+            {/* Ask White-Glove / Concierge */}
             <Button variant="secondary" className="w-full gap-2" asChild>
-              <Link href={`/concierge?product=${product.slug}`}>
+              <Link href={`/white-glove?product=${product.slug}`}>
                 <MessageCircle className="h-4 w-4" />
-                {t('product.askConcierge')}
+                {t('product.askWhite-Glove') || t('product.askConcierge')}
               </Link>
             </Button>
 

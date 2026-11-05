@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { requireAdminSession } from "@/lib/actions/auth-helper"
 
 export async function createDiscountCode(data: {
   code: string
@@ -10,6 +11,7 @@ export async function createDiscountCode(data: {
   maxUses: number | null
 }) {
   try {
+    await requireAdminSession()
     const code = data.code.toUpperCase().trim()
     
     // Check if exists
@@ -37,6 +39,7 @@ export async function createDiscountCode(data: {
 
 export async function toggleDiscountCode(codeId: string, isActive: boolean) {
   try {
+    await requireAdminSession()
     await db.discountCode.update({
       where: { id: codeId },
       data: { isActive }
@@ -50,6 +53,7 @@ export async function toggleDiscountCode(codeId: string, isActive: boolean) {
 
 export async function deleteDiscountCode(codeId: string) {
   try {
+    await requireAdminSession()
     await db.discountCode.delete({
       where: { id: codeId }
     })

@@ -2,9 +2,11 @@
 
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { requireAdminSession } from "@/lib/actions/auth-helper"
 
 export async function updateSiteSettings(formData: FormData) {
   try {
+    await requireAdminSession()
     const siteName = formData.get("siteName") as string
     const tagline = formData.get("tagline") as string
     const whatsappNumber = formData.get("whatsappNumber") as string

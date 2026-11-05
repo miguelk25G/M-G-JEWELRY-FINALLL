@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "prisma generate && prisma db push && next build",
+    "build": "node scripts/with-env.js prisma generate && node scripts/with-env.js prisma db push && next build",
+    "db:push": "node scripts/with-env.js prisma db push",
+    "db:generate": "node scripts/with-env.js prisma generate",
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start"
