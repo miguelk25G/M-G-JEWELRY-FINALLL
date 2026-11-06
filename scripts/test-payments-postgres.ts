@@ -6,7 +6,7 @@ import { createPaymentService } from '../lib/payments'
 
 // Opt-in integration test against a disposable PostgreSQL database with the
 // current Prisma schema. Stripe transport is still fake; no payment is made.
-const url = process.env.TEST_INTEGRATION_DATABASE_URL
+const url = process.env.TEST_INTEGRATION_DATABASE_URL || (process.env.VERCEL_ENV === 'preview' ? process.env.TEST_POSTGRES_URL : undefined)
 test('PostgreSQL: concurrent expiration/cancellation releases exactly once', { skip: !url }, async () => {
   if ([process.env.PRISMA_DATABASE_URL, process.env.DATABASE_URL, process.env.POSTGRES_URL].includes(url)) throw new Error('Use a dedicated integration database')
   const db = new PrismaClient({ datasourceUrl: url })
