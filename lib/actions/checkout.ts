@@ -12,6 +12,81 @@ export interface CartItemInput {
   size?: string
 }
 
+export interface CartItemCompatibilityIssue {
+  productId: string
+  type: 'has_no_sizes' | 'invalid_size' | 'missing_size' | 'unavailable'
+  message: string
+  availableSizes?: string[]
+}
+
+/**
+ * Validates cart items against current database products before checkout.
+ * Checks availability and flags any outdated/incompatible sizes.
+ */
+export async function checkCartItemsCompatibility(items: CartItemInput[]) {
+  try {
+    if (!items || items.length === 0) return { compatible: true, issues: [] }
+
+    const productIds = items.map((i) => i.productId).filter(Boolean)
+    const products = await db.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, nameEs: true, sizes: true, isActive: true },
+    })
+
+    const pMap = new Map(products.map((p) => [p.id, p]))
+    const issues: CartItemCompatibilityIssue[] = []
+
+    for (const item of items) {
+      const p = pMap.get(item.productId)
+      if (!p || !p.isActive) {
+        issues.push({
+          productId: item.productId,
+          type: 'unavailable',
+          message: 'Product is unavailable',
+        })
+        continue
+      }
+
+      let sizes: string[] = []
+      try {
+        if (p.sizes) {
+          const raw = JSON.parse(p.sizes)
+          if (Array.isArray(raw)) sizes = raw.map(String).filter(Boolean)
+        }
+      } catch {
+        sizes = []
+      }
+
+      if (sizes.length === 0 && item.size) {
+        issues.push({
+          productId: item.productId,
+          type: 'has_no_sizes',
+          message: 'This product has no selectable sizes.',
+        })
+      } else if (sizes.length > 0 && !item.size) {
+        issues.push({
+          productId: item.productId,
+          type: 'missing_size',
+          message: 'Select an available size.',
+          availableSizes: sizes,
+        })
+      } else if (sizes.length > 0 && item.size && !sizes.includes(item.size)) {
+        issues.push({
+          productId: item.productId,
+          type: 'invalid_size',
+          message: `Size ${item.size} is not available.`,
+          availableSizes: sizes,
+        })
+      }
+    }
+
+    return { compatible: issues.length === 0, issues }
+  } catch (err) {
+    console.error('checkCartItemsCompatibility error:', err)
+    return { compatible: true, issues: [] }
+  }
+}
+
 /**
  * Creates a Stripe Checkout Session with server-verified prices, inventory reservation,
  * and transactional concurrency protection against race conditions.

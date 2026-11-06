@@ -65,11 +65,30 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   const addToCart = useCartStore((state) => state.addItem)
   const { toggleItem, isFavorite } = useFavoritesStore()
 
-  const images = JSON.parse(product.images) as string[]
-  const sizes = product.sizes ? (JSON.parse(product.sizes) as string[]) : null
+  const images = (() => {
+    try {
+      const parsed = JSON.parse(product.images)
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : ['/placeholder.svg']
+    } catch {
+      return ['/placeholder.svg']
+    }
+  })()
+
+  // Safely parse available sizes: handles null, undefined, empty array or invalid JSON
+  const availableSizes: string[] = (() => {
+    if (!product.sizes) return []
+    try {
+      const parsed = JSON.parse(product.sizes)
+      return Array.isArray(parsed) ? parsed.map((s) => String(s).trim()).filter(Boolean) : []
+    } catch {
+      return []
+    }
+  })()
+
+  const hasSizes = availableSizes.length > 0
 
   const [selectedImage, setSelectedImage] = useState(0)
-  const [selectedSize, setSelectedSize] = useState<string | null>(sizes?.[0] || null)
+  const [selectedSize, setSelectedSize] = useState<string | null>(null)
   const [quantity, setQuantity] = useState(1)
 
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
@@ -80,8 +99,12 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   const favorite = isFavorite(product.id)
 
   const handleAddToCart = () => {
-    if (sizes && !selectedSize) {
-      toast.error('Please select a size')
+    if (hasSizes && !selectedSize) {
+      toast.error(locale === 'es' ? 'Por favor selecciona una talla' : 'Please select a size')
+      return
+    }
+    if (hasSizes && selectedSize && !availableSizes.includes(selectedSize)) {
+      toast.error(locale === 'es' ? 'Por favor selecciona una talla disponible' : 'Please select an available size')
       return
     }
     addToCart({
@@ -90,7 +113,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       price: product.price,
       image: images[0],
       quantity,
-      size: selectedSize || undefined,
+      size: hasSizes ? (selectedSize || undefined) : undefined,
       metalType: product.metalType,
       karat: product.karat || undefined,
     })
@@ -215,13 +238,13 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             <Separator />
 
             {/* Size Selection */}
-            {sizes && (
+            {hasSizes && (
               <div>
                 <label className="mb-3 block text-sm font-medium text-foreground">
                   {t('product.size')}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {sizes.map((size) => (
+                  {availableSizes.map((size) => (
                     <button
                       key={size}
                       onClick={() => setSelectedSize(size)}

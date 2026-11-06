@@ -8,10 +8,11 @@ import { Separator } from '@/components/ui/separator'
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { toast } from 'sonner'
 
 export function CartPageContent() {
-  const { t } = useTranslation()
-  const { items, removeItem, updateQuantity, subtotal } = useCartStore()
+  const { t, locale } = useTranslation()
+  const { items, removeItem, updateQuantity, updateItemSize, subtotal } = useCartStore()
   const total = subtotal()
 
   if (items.length === 0) {
@@ -66,9 +67,25 @@ export function CartPageContent() {
                         <div>
                           <h3 className="font-medium text-foreground">{item.name}</h3>
                           {item.size && (
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {t('product.size')}: {item.size}
-                            </p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <p className="text-sm text-muted-foreground">
+                                {t('product.size')}: {item.size}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateItemSize(item.id, undefined)
+                                  toast.info(
+                                    locale === 'es'
+                                      ? "Talla removida del producto"
+                                      : "Size removed from product"
+                                  )
+                                }}
+                                className="text-xs text-amber-600 dark:text-amber-400 underline hover:opacity-80"
+                              >
+                                {locale === 'es' ? "(quitar talla)" : "(remove size)"}
+                              </button>
+                            </div>
                           )}
                           {item.karat && (
                             <p className="text-sm text-muted-foreground">{item.karat}</p>

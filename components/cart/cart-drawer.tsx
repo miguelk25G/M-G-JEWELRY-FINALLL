@@ -12,8 +12,8 @@ import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
 
 export function CartDrawer() {
-  const { t } = useTranslation()
-  const { items, isOpen, closeCart, removeItem, updateQuantity, subtotal } = useCartStore()
+  const { t, locale } = useTranslation()
+  const { items, isOpen, closeCart, removeItem, updateQuantity, updateItemSize, subtotal } = useCartStore()
   const total = subtotal()
 
   return (
@@ -62,9 +62,18 @@ export function CartDrawer() {
                             {item.name}
                           </h4>
                           {item.size && (
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {t('product.size')}: {item.size}
-                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <p className="text-xs text-muted-foreground">
+                                {t('product.size')}: {item.size}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => updateItemSize(item.id, undefined)}
+                                className="text-[11px] text-amber-600 dark:text-amber-400 underline hover:opacity-80"
+                              >
+                                {locale === 'es' ? "(quitar)" : "(remove)"}
+                              </button>
+                            </div>
                           )}
                           {item.karat && (
                             <p className="text-xs text-muted-foreground">

@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft, Lock, ShieldCheck, ShoppingBag, Tag } from 'lucide-react'
+import { ArrowLeft, Lock, ShieldCheck, ShoppingBag, Tag, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,17 +18,44 @@ import {
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
-import { createStripeCheckoutSession, applyPromoCode } from '@/lib/actions/checkout'
+import {
+  createStripeCheckoutSession,
+  applyPromoCode,
+  checkCartItemsCompatibility,
+  type CartItemCompatibilityIssue,
+} from '@/lib/actions/checkout'
 import { calculateOrderTotals } from '@/lib/config/pricing'
 import { toast } from 'sonner'
 
 export function CheckoutContent() {
   const { t, locale } = useTranslation()
-  const { items, subtotal } = useCartStore()
+  const { items, subtotal, updateItemSize } = useCartStore()
   const [isProcessing, setIsProcessing] = useState(false)
   const [promoInput, setPromoInput] = useState("")
   const [isValidatingPromo, setIsValidatingPromo] = useState(false)
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; type: string; value: number } | null>(null)
+  const [compatibilityIssues, setCompatibilityIssues] = useState<CartItemCompatibilityIssue[]>([])
+
+  useEffect(() => {
+    let active = true
+    if (items.length === 0) {
+      setCompatibilityIssues([])
+      return
+    }
+    const payload = items.map((i) => ({
+      productId: i.productId,
+      quantity: i.quantity,
+      size: i.size,
+    }))
+    checkCartItemsCompatibility(payload).then((res) => {
+      if (active) {
+        setCompatibilityIssues(res.issues || [])
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [items])
 
   const rawSubtotal = subtotal()
 
@@ -122,10 +149,37 @@ export function CheckoutContent() {
         )
         window.location.href = res.url
       } else {
-        toast.error(
-          res.error || (locale === 'es' ? "Error al procesar el pago." : "Payment processing error."),
-          { id: toastId }
-        )
+        const errorMsg = res.error || ""
+        if (
+          errorMsg.includes('has no selectable sizes') ||
+          errorMsg.includes('no tiene tallas')
+        ) {
+          // Identify items with stale size and clear them
+          items.forEach((item) => {
+            if (item.size) updateItemSize(item.id, undefined)
+          })
+          toast.error(
+            locale === 'es'
+              ? "Este producto no tiene tallas seleccionables. Se corrigió la talla antigua en tu carrito. Pulsa 'Pagar de forma segura' de nuevo para continuar."
+              : "This product has no selectable sizes. The outdated size was removed from your cart. Please click 'Pay securely' again to continue.",
+            { id: toastId, duration: 6000 }
+          )
+        } else if (
+          errorMsg.includes('Select an available size') ||
+          errorMsg.includes('selecciona una talla')
+        ) {
+          toast.error(
+            locale === 'es'
+              ? "Por favor selecciona una talla disponible para el producto antes de pagar."
+              : "Please select an available size for the product before paying.",
+            { id: toastId, duration: 6000 }
+          )
+        } else {
+          toast.error(
+            errorMsg || (locale === 'es' ? "Error al procesar el pago." : "Payment processing error."),
+            { id: toastId }
+          )
+        }
         setIsProcessing(false)
       }
     } catch (err: any) {
@@ -163,6 +217,55 @@ export function CheckoutContent() {
             ? "Completa tus datos de envío para finalizar tu orden de joyería fina con total seguridad a través de Stripe."
             : "Enter your shipping and delivery information to complete your fine jewelry acquisition safely via Stripe."}
         </p>
+
+        {compatibilityIssues.length > 0 && (
+          <div className="mt-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-foreground">
+            <div className="flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400">
+              <AlertCircle className="h-5 w-5 flex-shrink-0" />
+              <span>
+                {locale === 'es'
+                  ? "Atención: Hemos detectado incompatibilidad con las tallas de tu carrito"
+                  : "Attention: We detected an incompatibility with your cart sizes"}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {compatibilityIssues.map((issue) => {
+                const affectedItem = items.find((i) => i.productId === issue.productId)
+                return (
+                  <div
+                    key={issue.productId}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded bg-background/50 p-2.5 text-xs"
+                  >
+                    <div>
+                      <span className="font-semibold text-foreground">
+                        {affectedItem?.name || issue.productId}:
+                      </span>{' '}
+                      <span className="text-muted-foreground">{issue.message}</span>
+                    </div>
+                    {issue.type === 'has_no_sizes' && affectedItem && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="self-start sm:self-auto h-7 text-xs"
+                        onClick={() => {
+                          updateItemSize(affectedItem.id, undefined)
+                          toast.success(
+                            locale === 'es'
+                              ? "Talla removida del carrito correctamente"
+                              : "Size successfully removed from cart"
+                          )
+                        }}
+                      >
+                        {locale === 'es' ? "Quitar talla" : "Remove size"}
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="mt-8 grid gap-8 lg:grid-cols-3">
@@ -346,9 +449,25 @@ export function CheckoutContent() {
                           {item.name}
                         </p>
                         {item.size && (
-                          <p className="text-xs text-muted-foreground">
-                            Size: {item.size}
-                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-muted-foreground">
+                              {locale === 'es' ? "Talla:" : "Size:"} {item.size}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateItemSize(item.id, undefined)
+                                toast.info(
+                                  locale === 'es'
+                                    ? "Talla removida del producto"
+                                    : "Size removed from product"
+                                )
+                              }}
+                              className="text-[11px] text-amber-600 dark:text-amber-400 underline hover:opacity-80"
+                            >
+                              {locale === 'es' ? "(quitar)" : "(remove)"}
+                            </button>
+                          </div>
                         )}
                         <p className="text-sm text-foreground">
                           {formatPrice(item.price * item.quantity)}
