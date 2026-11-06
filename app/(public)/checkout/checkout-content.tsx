@@ -23,6 +23,7 @@ import {
   applyPromoCode,
   checkCartItemsCompatibility,
   type CartItemCompatibilityIssue,
+  type CatalogItemDetails,
 } from '@/lib/actions/checkout'
 import { calculateOrderTotals } from '@/lib/config/pricing'
 import { toast } from 'sonner'
@@ -35,14 +36,17 @@ export function CheckoutContent() {
   const [isValidatingPromo, setIsValidatingPromo] = useState(false)
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; type: string; value: number } | null>(null)
   const [compatibilityIssues, setCompatibilityIssues] = useState<CartItemCompatibilityIssue[]>([])
+  const [catalogMap, setCatalogMap] = useState<Record<string, CatalogItemDetails>>({})
 
   useEffect(() => {
     let active = true
     if (items.length === 0) {
       setCompatibilityIssues([])
+      setCatalogMap({})
       return
     }
     const payload = items.map((i) => ({
+      id: i.id,
       productId: i.productId,
       quantity: i.quantity,
       size: i.size,
@@ -50,6 +54,7 @@ export function CheckoutContent() {
     checkCartItemsCompatibility(payload).then((res) => {
       if (active) {
         setCompatibilityIssues(res.issues || [])
+        setCatalogMap(res.catalogMap || {})
       }
     })
     return () => {
@@ -132,6 +137,7 @@ export function CheckoutContent() {
       }
 
       const cartPayload = items.map((item) => ({
+        id: item.id,
         productId: item.productId,
         quantity: item.quantity,
         size: item.size,
@@ -154,24 +160,42 @@ export function CheckoutContent() {
           errorMsg.includes('has no selectable sizes') ||
           errorMsg.includes('no tiene tallas')
         ) {
-          // Identify items with stale size and clear them
-          items.forEach((item) => {
-            if (item.size) updateItemSize(item.id, undefined)
-          })
-          toast.error(
-            locale === 'es'
-              ? "Este producto no tiene tallas seleccionables. Se corrigió la talla antigua en tu carrito. Pulsa 'Pagar de forma segura' de nuevo para continuar."
-              : "This product has no selectable sizes. The outdated size was removed from your cart. Please click 'Pay securely' again to continue.",
-            { id: toastId, duration: 6000 }
-          )
+          // Identify EXCLUSIVELY the incompatible item by its cart ID and catalog verification
+          let targetItemId = res.incompatibleCartItemId
+          if (!targetItemId) {
+            const incompatible = items.find((i) => {
+              const cat = catalogMap[i.productId]
+              return cat ? (!cat.admitsSizes && Boolean(i.size)) : false
+            })
+            targetItemId = incompatible?.id
+          }
+
+          if (targetItemId) {
+            const affectedItem = items.find((i) => i.id === targetItemId)
+            // Modify EXCLUSIVELY this line, strictly preserving all other lines, sizes and quantities
+            updateItemSize(targetItemId, undefined)
+            toast.error(
+              locale === 'es'
+                ? `El producto "${affectedItem?.name || ''}" no admite tallas. Se eliminó la talla exclusivamente de esta línea; las demás líneas y tallas se mantuvieron intactas. Pulsa "Pagar de forma segura" para continuar.`
+                : `Product "${affectedItem?.name || 'item'}" does not admit sizes. Removed size exclusively from this line; all other lines and sizes remain intact. Please click "Pay securely" to continue.`,
+              { id: toastId, duration: 6000 }
+            )
+          } else {
+            toast.error(
+              locale === 'es'
+                ? "Uno de los productos no tiene tallas seleccionables. Revisa las líneas de tu pedido."
+                : "A product in your cart has no selectable sizes. Please check your order lines.",
+              { id: toastId }
+            )
+          }
         } else if (
           errorMsg.includes('Select an available size') ||
           errorMsg.includes('selecciona una talla')
         ) {
           toast.error(
             locale === 'es'
-              ? "Por favor selecciona una talla disponible para el producto antes de pagar."
-              : "Please select an available size for the product before paying.",
+              ? "Por favor selecciona una talla disponible para el producto antes de pagar o vuelve a su ficha."
+              : "Please select an available size for the product before paying or view its product page.",
             { id: toastId, duration: 6000 }
           )
         } else {
@@ -224,21 +248,23 @@ export function CheckoutContent() {
               <AlertCircle className="h-5 w-5 flex-shrink-0" />
               <span>
                 {locale === 'es'
-                  ? "Atención: Hemos detectado incompatibilidad con las tallas de tu carrito"
-                  : "Attention: We detected an incompatibility with your cart sizes"}
+                  ? "Atención: Ajuste requerido en las tallas del pedido"
+                  : "Attention: Size adjustment needed in your order"}
               </span>
             </div>
             <div className="mt-3 space-y-2">
               {compatibilityIssues.map((issue) => {
-                const affectedItem = items.find((i) => i.productId === issue.productId)
+                const affectedItem = items.find((i) =>
+                  issue.cartItemId ? i.id === issue.cartItemId : i.productId === issue.productId
+                )
                 return (
                   <div
-                    key={issue.productId}
+                    key={issue.cartItemId || issue.productId}
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded bg-background/50 p-2.5 text-xs"
                   >
                     <div>
                       <span className="font-semibold text-foreground">
-                        {affectedItem?.name || issue.productId}:
+                        {issue.name || affectedItem?.name || issue.productId}:
                       </span>{' '}
                       <span className="text-muted-foreground">{issue.message}</span>
                     </div>
@@ -252,12 +278,25 @@ export function CheckoutContent() {
                           updateItemSize(affectedItem.id, undefined)
                           toast.success(
                             locale === 'es'
-                              ? "Talla removida del carrito correctamente"
-                              : "Size successfully removed from cart"
+                              ? "Talla removida de la línea incompatible"
+                              : "Size removed from incompatible line"
                           )
                         }}
                       >
                         {locale === 'es' ? "Quitar talla" : "Remove size"}
+                      </Button>
+                    )}
+                    {(issue.type === 'missing_size' || issue.type === 'invalid_size') && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="self-start sm:self-auto h-7 text-xs"
+                        asChild
+                      >
+                        <Link href={`/product/${issue.slug || issue.productId}`}>
+                          {locale === 'es' ? "Volver a la ficha" : "Go to product"}
+                        </Link>
                       </Button>
                     )}
                   </div>
@@ -448,27 +487,98 @@ export function CheckoutContent() {
                         <p className="text-sm font-medium text-foreground line-clamp-1">
                           {item.name}
                         </p>
-                        {item.size && (
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-muted-foreground">
-                              {locale === 'es' ? "Talla:" : "Size:"} {item.size}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateItemSize(item.id, undefined)
-                                toast.info(
-                                  locale === 'es'
-                                    ? "Talla removida del producto"
-                                    : "Size removed from product"
-                                )
-                              }}
-                              className="text-[11px] text-amber-600 dark:text-amber-400 underline hover:opacity-80"
-                            >
-                              {locale === 'es' ? "(quitar)" : "(remove)"}
-                            </button>
-                          </div>
-                        )}
+                        {(() => {
+                          const cat = catalogMap[item.productId]
+                          const admitsSizes = cat?.admitsSizes
+                          const availableSizes = cat?.availableSizes || []
+                          const isStaleSize = cat && !admitsSizes && Boolean(item.size)
+                          const isMissingOrInvalid =
+                            cat && admitsSizes && (!item.size || !availableSizes.includes(item.size))
+
+                          if (isStaleSize) {
+                            return (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                  {locale === 'es' ? "Talla no admitida:" : "Unselectable size:"} {item.size}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateItemSize(item.id, undefined)
+                                    toast.success(
+                                      locale === 'es'
+                                        ? "Talla removida de la línea incompatible"
+                                        : "Size removed from incompatible line"
+                                    )
+                                  }}
+                                  className="text-[11px] text-amber-700 dark:text-amber-300 underline font-semibold hover:opacity-80"
+                                >
+                                  {locale === 'es' ? "Quitar talla" : "Remove size"}
+                                </button>
+                              </div>
+                            )
+                          }
+
+                          if (isMissingOrInvalid) {
+                            return (
+                              <div className="mt-1 space-y-1">
+                                <span className="text-xs text-destructive font-medium block">
+                                  {item.size
+                                    ? (locale === 'es'
+                                        ? `Talla "${item.size}" no disponible`
+                                        : `Size "${item.size}" unavailable`)
+                                    : (locale === 'es'
+                                        ? "Selecciona una talla"
+                                        : "Size required")}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  {availableSizes.length > 0 && (
+                                    <select
+                                      aria-label={locale === 'es' ? "Seleccionar talla" : "Select size"}
+                                      className="text-xs border border-border rounded px-1.5 py-0.5 bg-background text-foreground"
+                                      value={item.size && availableSizes.includes(item.size) ? item.size : ""}
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          updateItemSize(item.id, e.target.value)
+                                          toast.success(
+                                            locale === 'es'
+                                              ? `Talla actualizada a ${e.target.value}`
+                                              : `Size updated to ${e.target.value}`
+                                          )
+                                        }
+                                      }}
+                                    >
+                                      <option value="" disabled>
+                                        {locale === 'es' ? "Elegir talla..." : "Choose size..."}
+                                      </option>
+                                      {availableSizes.map((sz) => (
+                                        <option key={sz} value={sz}>
+                                          {sz}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <Link
+                                    href={`/product/${cat?.slug || item.productId}`}
+                                    className="text-[11px] text-primary underline hover:opacity-80"
+                                  >
+                                    {locale === 'es' ? "Ver ficha" : "View product"}
+                                  </Link>
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          if (item.size) {
+                            return (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {locale === 'es' ? "Talla:" : "Size:"} {item.size}
+                              </p>
+                            )
+                          }
+
+                          return null
+                        })()}
                         <p className="text-sm text-foreground">
                           {formatPrice(item.price * item.quantity)}
                         </p>

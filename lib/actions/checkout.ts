@@ -10,10 +10,22 @@ export interface CartItemInput {
   productId: string
   quantity: number
   size?: string
+  id?: string
+}
+
+export interface CatalogItemDetails {
+  productId: string
+  name: string
+  slug: string
+  admitsSizes: boolean
+  availableSizes: string[]
 }
 
 export interface CartItemCompatibilityIssue {
+  cartItemId?: string
   productId: string
+  name: string
+  slug?: string
   type: 'has_no_sizes' | 'invalid_size' | 'missing_size' | 'unavailable'
   message: string
   availableSizes?: string[]
@@ -21,58 +33,84 @@ export interface CartItemCompatibilityIssue {
 
 /**
  * Validates cart items against current database products before checkout.
- * Checks availability and flags any outdated/incompatible sizes.
+ * Checks availability, builds catalog mapping, and flags any outdated/incompatible sizes.
  */
 export async function checkCartItemsCompatibility(items: CartItemInput[]) {
   try {
-    if (!items || items.length === 0) return { compatible: true, issues: [] }
+    if (!items || items.length === 0) return { compatible: true, issues: [], catalogMap: {} }
 
     const productIds = items.map((i) => i.productId).filter(Boolean)
     const products = await db.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, nameEs: true, sizes: true, isActive: true },
+      select: { id: true, name: true, nameEs: true, slug: true, sizes: true, isActive: true },
     })
 
     const pMap = new Map(products.map((p) => [p.id, p]))
     const issues: CartItemCompatibilityIssue[] = []
+    const catalogMap: Record<string, CatalogItemDetails> = {}
+
+    for (const p of products) {
+      let sizes: string[] = []
+      try {
+        if (p.sizes) {
+          const raw = JSON.parse(p.sizes)
+          if (Array.isArray(raw)) sizes = raw.map(String).map((s) => s.trim()).filter(Boolean)
+        }
+      } catch {
+        sizes = []
+      }
+      catalogMap[p.id] = {
+        productId: p.id,
+        name: p.name,
+        slug: p.slug,
+        admitsSizes: sizes.length > 0,
+        availableSizes: sizes,
+      }
+    }
 
     for (const item of items) {
       const p = pMap.get(item.productId)
       if (!p || !p.isActive) {
         issues.push({
+          cartItemId: item.id,
           productId: item.productId,
+          name: p?.name || item.productId,
+          slug: p?.slug,
           type: 'unavailable',
           message: 'Product is unavailable',
         })
         continue
       }
 
-      let sizes: string[] = []
-      try {
-        if (p.sizes) {
-          const raw = JSON.parse(p.sizes)
-          if (Array.isArray(raw)) sizes = raw.map(String).filter(Boolean)
-        }
-      } catch {
-        sizes = []
-      }
+      const catDetails = catalogMap[item.productId]
+      const sizes = catDetails?.availableSizes || []
 
       if (sizes.length === 0 && item.size) {
         issues.push({
+          cartItemId: item.id,
           productId: item.productId,
+          name: p.name,
+          slug: p.slug,
           type: 'has_no_sizes',
           message: 'This product has no selectable sizes.',
+          availableSizes: [],
         })
       } else if (sizes.length > 0 && !item.size) {
         issues.push({
+          cartItemId: item.id,
           productId: item.productId,
+          name: p.name,
+          slug: p.slug,
           type: 'missing_size',
           message: 'Select an available size.',
           availableSizes: sizes,
         })
       } else if (sizes.length > 0 && item.size && !sizes.includes(item.size)) {
         issues.push({
+          cartItemId: item.id,
           productId: item.productId,
+          name: p.name,
+          slug: p.slug,
           type: 'invalid_size',
           message: `Size ${item.size} is not available.`,
           availableSizes: sizes,
@@ -80,10 +118,10 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
       }
     }
 
-    return { compatible: issues.length === 0, issues }
+    return { compatible: issues.length === 0, issues, catalogMap }
   } catch (err) {
     console.error('checkCartItemsCompatibility error:', err)
-    return { compatible: true, issues: [] }
+    return { compatible: true, issues: [], catalogMap: {} }
   }
 }
 
@@ -168,7 +206,14 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           throw new Error(`El producto seleccionado ya no está disponible.`)
         }
 
-        validateSize(product, item.size)
+        try {
+          validateSize(product, item.size)
+        } catch (sizeErr: any) {
+          const errWithMeta: any = new Error(sizeErr.message)
+          errWithMeta.incompatibleProductId = product.id
+          errWithMeta.incompatibleCartItemId = item.id
+          throw errWithMeta
+        }
         if (product.currency.toUpperCase() !== "USD" || !Number.isFinite(product.price) || product.price <= 0) throw new Error("Invalid product price or currency")
 
         // Atomically decrement inventory with strict condition: inventoryQty >= requested quantity
@@ -427,7 +472,12 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     }
   } catch (err: any) {
     console.error("Create Stripe Checkout session error:", err)
-    return { success: false, error: String(err.message || err) }
+    return {
+      success: false,
+      error: String(err.message || err),
+      incompatibleProductId: err.incompatibleProductId as string | undefined,
+      incompatibleCartItemId: err.incompatibleCartItemId as string | undefined,
+    }
   }
 }
 

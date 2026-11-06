@@ -67,25 +67,9 @@ export function CartPageContent() {
                         <div>
                           <h3 className="font-medium text-foreground">{item.name}</h3>
                           {item.size && (
-                            <div className="mt-1 flex items-center gap-2">
-                              <p className="text-sm text-muted-foreground">
-                                {t('product.size')}: {item.size}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  updateItemSize(item.id, undefined)
-                                  toast.info(
-                                    locale === 'es'
-                                      ? "Talla removida del producto"
-                                      : "Size removed from product"
-                                  )
-                                }}
-                                className="text-xs text-amber-600 dark:text-amber-400 underline hover:opacity-80"
-                              >
-                                {locale === 'es' ? "(quitar talla)" : "(remove size)"}
-                              </button>
-                            </div>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {t('product.size')}: {item.size}
+                            </p>
                           )}
                           {item.karat && (
                             <p className="text-sm text-muted-foreground">{item.karat}</p>
