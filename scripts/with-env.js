@@ -48,6 +48,17 @@ if (!cmd) {
 
 let useShell = false;
 
+// Install only the additive payment fields before Prisma's schema comparison.
+// Unique-index creation fails on duplicates; never bypass data-loss checks.
+if (process.env.VERCEL_ENV === 'preview' && cmd === 'prisma' && args[0] === 'db' && args[1] === 'push') {
+  const migration = spawnSync(process.execPath, [
+    path.join(__dirname, '..', 'node_modules', 'prisma', 'build', 'index.js'),
+    'db', 'execute', '--file', path.join(__dirname, '..', 'prisma', 'preview-payment-fields.sql'),
+    '--schema', path.join(__dirname, '..', 'prisma', 'schema.prisma'),
+  ], { stdio: 'inherit', env: process.env });
+  if (migration.status !== 0) process.exit(migration.status ?? 1);
+}
+
 // Ensure cross-platform resolution for prisma and next binaries
 if (cmd === 'prisma') {
   const localPrismaEntry = path.join(__dirname, '..', 'node_modules', 'prisma', 'build', 'index.js');
