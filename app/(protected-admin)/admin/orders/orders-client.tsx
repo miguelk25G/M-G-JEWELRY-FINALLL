@@ -60,6 +60,7 @@ const statusColors: Record<string, string> = {
 }
 
 const paymentColors: Record<string, string> = {
+  "Partially refunded": "bg-gray-500/10 text-gray-500",
   Paid: "bg-green-500/10 text-green-500 border border-green-500/20",
   Pending: "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20",
   Refunded: "bg-gray-500/10 text-gray-500 border border-gray-500/20",
@@ -273,7 +274,7 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        {order.payment !== "Paid" && (
+                        {order.payment !== "Paid" && order.provider !== "stripe" && (
                           <DropdownMenuItem onClick={() => handlePaymentPaid(order.id, order.total)}>
                             <DollarSign className="h-4 w-4 mr-2" />
                             Mark as Paid (Manual)
@@ -303,7 +304,7 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                             onClick={() => handleStatusChange(order.id, "Cancelled")}
                           >
                             <XCircle className="h-4 w-4 mr-2" />
-                            Cancel Order & Restock
+                            Cancel unpaid order
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>

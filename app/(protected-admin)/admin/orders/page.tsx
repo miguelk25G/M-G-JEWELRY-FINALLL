@@ -18,6 +18,8 @@ export default async function OrdersPage() {
     else if (hasSuccessfulTx) paymentStatus = "Paid"
     else if (hasFailedTx) paymentStatus = "Failed"
 
+    if (order.stripeSessionId) paymentStatus = ({ paid: "Paid", pending: "Pending", failed: "Failed", refunded: "Refunded", partially_refunded: "Partially refunded" } as Record<string, string>)[order.paymentStatus] || "Pending"
+
     const latestTx = order.transactions[order.transactions.length - 1]
 
     let displayStatus = order.status

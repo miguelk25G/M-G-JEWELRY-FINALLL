@@ -22,5 +22,6 @@ export function getStripe(): Stripe {
       'Stripe secret key is missing. Ensure stripe_secret_key or STRIPE_SECRET_KEY is configured in your environment.'
     )
   }
+  if (process.env.VERCEL_ENV === "preview" && !/^(sk|rk)_test_/.test(stripeSecretKey || "")) throw new Error("Preview requires a Stripe test key")
   return stripe
 }

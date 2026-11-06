@@ -5,11 +5,10 @@ const path = require('path');
 const fs = require('fs');
 
 function resolveDatabaseEnv() {
-  const isPreview =
-    process.env.VERCEL_ENV === 'preview' ||
-    Boolean(process.env.TEST_PRISMA_DATABASE_URL || process.env.TEST_DATABASE_URL || process.env.TEST_POSTGRES_URL);
+  const isPreview = process.env.VERCEL_ENV === 'preview';
 
   if (isPreview) {
+    if (!process.env.TEST_PRISMA_DATABASE_URL || !process.env.TEST_POSTGRES_URL) throw new Error('Preview requires TEST database URLs');
     const testPrismaUrl =
       process.env.TEST_PRISMA_DATABASE_URL ||
       process.env.TEST_POSTGRES_URL ||
@@ -74,4 +73,4 @@ const result = spawnSync(cmd, args, {
   env: process.env,
 });
 
-process.exit(result.status ?? 0);
+process.exit(result.status ?? 1);

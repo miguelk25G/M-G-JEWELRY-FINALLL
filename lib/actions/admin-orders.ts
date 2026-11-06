@@ -3,11 +3,13 @@
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { requireAdminSession } from "@/lib/actions/auth-helper"
+import { createPaymentService } from "@/lib/payments"
 import { getStripe } from "@/lib/stripe"
 
 export async function updateOrderStatus(orderId: string, status: string) {
   try {
     await requireAdminSession()
+    status = status.toLowerCase()
 
     // Validate that orderId exists
     const order = await db.order.findUnique({
@@ -19,31 +21,15 @@ export async function updateOrderStatus(orderId: string, status: string) {
       return { success: false, error: "Order not found." }
     }
 
-    // If order is cancelled from admin, handle inventory restock if not already cancelled
-    if (status.toLowerCase() === "cancelled" && order.status.toLowerCase() !== "cancelled") {
-      await db.$transaction(async (tx: any) => {
-        await tx.order.update({
-          where: { id: orderId },
-          data: { status },
-        })
-
-        // Restock inventory for items in cancelled order
-        for (const item of order.items) {
-          if (item.productId) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: {
-                inventoryQty: { increment: item.quantity },
-              },
-            })
-          }
-        }
-      })
+    if (order.stripeSessionId) {
+      if (status === "cancelled") {
+        await createPaymentService(db, getStripe()).cancel(order.stripeSessionId)
+      } else {
+        if (!["processing", "shipped", "completed", "delivered"].includes(status) || order.paymentStatus !== "paid") throw new Error("Payment must be confirmed before fulfillment.")
+        await db.order.update({ where: { id: orderId }, data: { status } })
+      }
     } else {
-      await db.order.update({
-        where: { id: orderId },
-        data: { status },
-      })
+      await db.order.update({ where: { id: orderId }, data: { status } })
     }
 
     revalidatePath("/admin/orders")
@@ -67,6 +53,7 @@ export async function markOrderAsPaid(orderId: string, amount: number) {
       return { success: false, error: "Order not found." }
     }
 
+    if (order.stripeSessionId) throw new Error("Use Stripe reconciliation for this order.")
     await db.$transaction(async (tx: any) => {
       // Record manual administrative payment transaction
       await tx.transaction.create({
@@ -117,42 +104,8 @@ export async function syncOrderPaymentWithStripe(orderId: string) {
       return { success: false, error: "Order not found." }
     }
 
-    const stripeTx = order.transactions.find((t: any) => t.provider === "stripe")
-    if (!stripeTx) {
-      return { success: false, error: "No Stripe transaction associated with this order." }
-    }
-
-    const stripeInstance = getStripe()
-    // providerId is either a session id (cs_...) or payment intent (pi_...)
-    if (stripeTx.providerId.startsWith("cs_")) {
-      const session = await stripeInstance.checkout.sessions.retrieve(stripeTx.providerId)
-      if (session.payment_status === "paid") {
-        await db.transaction.update({
-          where: { id: stripeTx.id },
-          data: { status: "succeeded" },
-        })
-        if (order.status === "pending" || order.status === "pending_concierge") {
-          await db.order.update({
-            where: { id: order.id },
-            data: { status: "processing" },
-          })
-        }
-      }
-    } else if (stripeTx.providerId.startsWith("pi_")) {
-      const pi = await stripeInstance.paymentIntents.retrieve(stripeTx.providerId)
-      if (pi.status === "succeeded") {
-        await db.transaction.update({
-          where: { id: stripeTx.id },
-          data: { status: "succeeded" },
-        })
-        if (order.status === "pending" || order.status === "pending_concierge") {
-          await db.order.update({
-            where: { id: order.id },
-            data: { status: "processing" },
-          })
-        }
-      }
-    }
+    if (!order.stripeSessionId) throw new Error("Legacy order requires manual reconciliation.")
+    await createPaymentService(db, getStripe()).reconcile(order.stripeSessionId)
 
     revalidatePath("/admin/orders")
     return { success: true }

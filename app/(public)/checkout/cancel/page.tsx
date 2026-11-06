@@ -15,10 +15,6 @@ export default async function CheckoutCancelPage({
   const resolvedParams = await searchParams
   const sessionId = resolvedParams.session_id
 
-  // If a session ID was provided on cancel, release the reserved stock immediately
-  if (sessionId) {
-    await cancelStripeCheckout(sessionId)
-  }
-
-  return <CheckoutCancelContent />
+  const result = sessionId ? await cancelStripeCheckout(sessionId) : null
+  return <CheckoutCancelContent confirmed={result?.success === true} />
 }

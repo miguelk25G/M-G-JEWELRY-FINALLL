@@ -1,17 +1,11 @@
 import { PrismaClient } from '@prisma/client'
 
 // Determine if we are running in Vercel Preview or targeting the TEST database
-const isPreview =
-  process.env.VERCEL_ENV === 'preview' ||
-  Boolean(process.env.TEST_PRISMA_DATABASE_URL || process.env.TEST_DATABASE_URL || process.env.TEST_POSTGRES_URL)
+const isPreview = process.env.VERCEL_ENV === 'preview'
+if (isPreview && !process.env.TEST_PRISMA_DATABASE_URL) throw new Error('Preview requires TEST_PRISMA_DATABASE_URL')
 
 const activeDatabaseUrl = isPreview
-  ? (process.env.TEST_PRISMA_DATABASE_URL ||
-     process.env.TEST_POSTGRES_URL ||
-     process.env.TEST_DATABASE_URL_POOLED ||
-     process.env.TEST_DATABASE_URL ||
-     process.env.PRISMA_DATABASE_URL ||
-     process.env.DATABASE_URL)
+  ? process.env.TEST_PRISMA_DATABASE_URL
   : (process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL)
 
 const globalForPrisma = globalThis as unknown as {

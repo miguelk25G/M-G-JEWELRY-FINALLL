@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { getStripe } from "@/lib/stripe"
 import { calculateOrderTotals } from "@/lib/config/pricing"
 import Stripe from "stripe"
+import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
 
 export interface CartItemInput {
   productId: string
@@ -17,6 +18,11 @@ export interface CartItemInput {
  */
 export async function createStripeCheckoutSession(formData: FormData, cartItems: CartItemInput[]) {
   try {
+    // Fail before reserving stock if payment notifications are not configured.
+    getStripe()
+    if (!(process.env.stripe_webhook_secret || process.env.STRIPE_WEBHOOK_SECRET)) {
+      return { success: false, error: "Los pagos están temporalmente deshabilitados. Contacta a la tienda." }
+    }
     // 1. Extract and sanitize customer details
     const firstName = (formData.get("firstName") as string || "").trim()
     const lastName = (formData.get("lastName") as string || "").trim()
@@ -87,17 +93,8 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           throw new Error(`El producto seleccionado ya no está disponible.`)
         }
 
-        // Validate variants/sizes if defined on product
-        if (item.size && product.sizes) {
-          try {
-            const availableSizes = JSON.parse(product.sizes)
-            if (Array.isArray(availableSizes) && availableSizes.length > 0 && !availableSizes.includes(item.size)) {
-              throw new Error(`La talla seleccionada (${item.size}) para "${product.name}" ya no está disponible.`)
-            }
-          } catch (e) {
-            // Ignore JSON parse error on malformed sizes
-          }
-        }
+        validateSize(product, item.size)
+        if (product.currency.toUpperCase() !== "USD" || !Number.isFinite(product.price) || product.price <= 0) throw new Error("Invalid product price or currency")
 
         // Atomically decrement inventory with strict condition: inventoryQty >= requested quantity
         const updateResult = await tx.product.updateMany({
@@ -193,6 +190,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           total: pricing.total,
           currency: "USD",
           status: "pending",
+          reservationStatus: "reserved",
           shippingAddress: JSON.stringify(shippingAddressObj),
           billingAddress: JSON.stringify(shippingAddressObj),
           notes: `Stripe Checkout pending${validPromoCode ? ` | Promo: ${validPromoCode}` : ''}`,
@@ -280,7 +278,6 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
       session = await stripeInstance.checkout.sessions.create({
-        payment_method_types: ["card"],
         mode: "payment",
         customer_email: email,
         client_reference_id: order.id,
@@ -307,37 +304,28 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         ],
         success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
+        payment_intent_data: { metadata: { orderId: order.id } },
         metadata: {
           orderId: order.id,
           orderNumber: order.orderNumber,
           promoCode: validPromoCode,
         },
-      })
+      }, { idempotencyKey: `checkout-${order.id}` })
     } catch (stripeError: any) {
       console.error("[Stripe Checkout Error]", stripeError)
 
-      // Rollback inventory reservation if Stripe session creation fails
-      await db.$transaction(async (tx: any) => {
-        for (const item of verifiedItems) {
-          await tx.product.update({
-            where: { id: item.product.id },
-            data: { inventoryQty: { increment: item.quantity } },
-          })
-        }
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: "cancelled", notes: "Stripe session creation failed; inventory released." },
-        })
-      })
-
+      // An ambiguous network failure may have created a payable session.
+      // Retain its reservation for reconciliation instead of risking overselling.
       return {
         success: false,
-        error: `Error al conectar con la pasarela de pago: ${stripeError.message || stripeError}`,
+        error: "No se pudo confirmar la sesión. Contacta soporte antes de reintentar.",
       }
     }
 
     // 5. Create initial pending Transaction record linked to order
-    await db.transaction.create({
+    await db.$transaction(async (tx: any) => {
+    await tx.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } })
+    await tx.transaction.create({
       data: {
         orderId: order.id,
         provider: "stripe",
@@ -352,6 +340,8 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           initiatedAt: new Date().toISOString(),
         }),
       },
+    })
+
     })
 
     return {
@@ -409,30 +399,9 @@ export async function verifyStripePayment(sessionId: string) {
       return { success: false, error: "No se encontró el pedido correspondiente." }
     }
 
-    // Ensure database records are marked paid/processing
-    if (order.status === "pending" || order.status === "pending_concierge") {
-      await db.$transaction(async (tx: any) => {
-        await tx.order.update({
-          where: { id: order!.id },
-          data: { status: "processing" },
-        })
-
-        const existingTx = order!.transactions.find((t: any) => t.providerId === session.id)
-        if (existingTx && existingTx.status !== "succeeded") {
-          await tx.transaction.update({
-            where: { id: existingTx.id },
-            data: {
-              status: "succeeded",
-              providerId: (session.payment_intent as any)?.id || session.id,
-              metadata: JSON.stringify({
-                sessionId: session.id,
-                confirmedBy: "checkout_success_page",
-                confirmedAt: new Date().toISOString(),
-              }),
-            },
-          })
-        }
-      })
+    assertSession(order, session)
+    if (!["paid", "partially_refunded"].includes(order.paymentStatus)) {
+      return { success: false, error: "Estamos confirmando el pedido. Actualiza esta página en unos segundos." }
     }
 
     let parsedAddress = null
@@ -473,42 +442,7 @@ export async function cancelStripeCheckout(sessionId: string) {
   try {
     if (!sessionId) return { success: false }
 
-    const txRecord = await db.transaction.findFirst({
-      where: { providerId: sessionId },
-      include: { order: { include: { items: true, transactions: true } } },
-    })
-
-    if (!txRecord || !txRecord.order) return { success: false }
-
-    const order = txRecord.order
-    const isPaid = order.transactions.some((t: any) => t.status === "succeeded")
-
-    if (!isPaid && order.status !== "cancelled") {
-      await db.$transaction(async (tx: any) => {
-        await tx.order.update({
-          where: { id: order.id },
-          data: {
-            status: "cancelled",
-            notes: order.notes ? `${order.notes} | Cancelled by user. Restocked.` : "Cancelled by user. Restocked.",
-          },
-        })
-
-        await tx.transaction.update({
-          where: { id: txRecord.id },
-          data: { status: "failed" },
-        })
-
-        for (const item of order.items) {
-          if (item.productId) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { inventoryQty: { increment: item.quantity } },
-            })
-          }
-        }
-      })
-    }
-
+    await createPaymentService(db, getStripe()).cancel(sessionId)
     return { success: true }
   } catch (err) {
     console.error("Cancel checkout error:", err)

@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/i18n/locale-context'
 import { useCartStore } from '@/lib/store/cart-store'
 
-export function CheckoutCancelContent() {
+export function CheckoutCancelContent({ confirmed }: { confirmed: boolean }) {
   const { locale } = useTranslation()
   const { itemCount } = useCartStore()
   const count = itemCount()
+
+  if (!confirmed) return <div className="mx-auto max-w-xl py-20 text-center"><h1>{locale === "es" ? "Estamos verificando el estado de tu pago" : "Checking your payment status"}</h1><p>{locale === "es" ? "La cancelación no está confirmada. No repitas el pago; contacta soporte para verificar tu pedido." : "Cancellation is not confirmed. Do not pay again; contact support to check your order."}</p><Link href="/contact">{locale === "es" ? "Contactar soporte" : "Contact support"}</Link></div>
 
   return (
     <div className="py-16 lg:py-24">
