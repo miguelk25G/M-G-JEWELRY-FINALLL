@@ -188,7 +188,12 @@ export function CheckoutContent() {
         window.location.href = res.url
       } else {
         const errorMsg = res.error || ""
-        if (
+        if (res.requiresQuote || errorMsg.includes('cotización') || errorMsg.includes('quote')) {
+          toast.error(
+            errorMsg || (locale === 'es' ? "Se requiere cotización para este destino." : "A custom quote is required for this destination."),
+            { id: toastId, duration: 6000 }
+          )
+        } else if (
           errorMsg.includes('has no selectable sizes') ||
           errorMsg.includes('no tiene tallas')
         ) {
@@ -736,21 +741,35 @@ export function CheckoutContent() {
                   </div>
                 )}
 
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="mt-6 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium tracking-wide shadow-md"
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? (
-                    t('checkout.processing')
-                  ) : (
-                    <>
-                      <Lock className="h-4 w-4" />
-                      {payButtonText}
-                    </>
-                  )}
-                </Button>
+                {!totals.isTexas ? (
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="mt-6 w-full gap-2 bg-amber-600 text-white hover:bg-amber-700 font-medium tracking-wide shadow-md"
+                    onClick={handleRequestQuote}
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                    {locale === 'es'
+                      ? "Solicitar cotización personalizada"
+                      : "Request custom quote"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="mt-6 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium tracking-wide shadow-md"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      t('checkout.processing')
+                    ) : (
+                      <>
+                        <Lock className="h-4 w-4" />
+                        {payButtonText}
+                      </>
+                    )}
+                  </Button>
+                )}
 
                 <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5">
                   <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />

@@ -51,6 +51,7 @@ export interface OrderPricingBreakdown {
   isTexas: boolean
   taxJurisdiction: string
   requiresQuoteOption: boolean
+  allowsDirectPayment: boolean
 }
 
 /**
@@ -144,5 +145,6 @@ export function calculateOrderTotals(params: {
     isTexas,
     taxJurisdiction,
     requiresQuoteOption,
+    allowsDirectPayment: isTexas,
   }
 }

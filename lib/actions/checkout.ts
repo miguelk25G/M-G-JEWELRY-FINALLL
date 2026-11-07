@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { getStripe } from "@/lib/stripe"
-import { calculateOrderTotals } from "@/lib/config/pricing"
+import { calculateOrderTotals, isTexasAddress } from "@/lib/config/pricing"
 import Stripe from "stripe"
 import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
 
@@ -178,6 +178,19 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     }
     const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
     const customerName = `${firstName} ${lastName}`
+
+    // 2.5. Bloqueo en servidor para entregas fuera de Texas cuya regla fiscal aún no esté definida:
+    // Se ofrece cotización personalizada y se bloquea la creación de la sesión de pago en Stripe.
+    const isTx = isTexasAddress(state, country)
+    if (!isTx) {
+      const stateLabel = state ? state.trim().toUpperCase() : "destino fuera de Texas"
+      return {
+        success: false,
+        requiresQuote: true,
+        state: stateLabel,
+        error: `Las entregas en ${stateLabel} requieren una cotización personalizada de impuestos y envío antes de pagar. Por favor solicita tu cotización con nuestro equipo de concierge.`,
+      }
+    }
 
     // 3. Database validation & transactional inventory reservation
     // To prevent race conditions where two concurrent buyers try to buy the last unit,

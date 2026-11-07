@@ -4,7 +4,7 @@
  */
 
 const assert = require('assert');
-const { calculateOrderTotals, CHECKOUT_PRICING_CONFIG } = require('../lib/config/pricing');
+const { calculateOrderTotals, isTexasAddress, CHECKOUT_PRICING_CONFIG } = require('../lib/config/pricing');
 
 let passedTests = 0;
 let totalTests = 0;
@@ -115,7 +115,7 @@ test('Texas delivery with discounts applies $25 shipping and 8.25% tax on discou
   assert.strictEqual(discountedAt450.total, 514.19); // 450 + 25 + 39.19 = 514.19
 });
 
-test('Out-of-state delivery (e.g. California): $0 Texas tax + $25 shipping + requires quote option', () => {
+test('Out-of-state delivery (e.g. California): $0 Texas tax + $25 shipping + requires quote option + blocks direct payment', () => {
   const totals = calculateOrderTotals({
     subtotal: 100,
     shippingAddress: { state: 'CA', country: 'US' },
@@ -128,6 +128,46 @@ test('Out-of-state delivery (e.g. California): $0 Texas tax + $25 shipping + req
   assert.strictEqual(totals.total, 125.0, 'Total is 100 + 25 + 0 = $125.00');
   assert.strictEqual(totals.isTexas, false);
   assert.strictEqual(totals.requiresQuoteOption, true);
+  assert.strictEqual(totals.allowsDirectPayment, false, 'Out-of-state orders must block direct payment');
+});
+
+test('Server-side payment session block: orders outside Texas strictly block payment session creation and require quote', () => {
+  function simulateServerCheckoutValidation(shippingAddress) {
+    const isTx = isTexasAddress(shippingAddress.state, shippingAddress.country);
+    if (!isTx) {
+      const stateLabel = shippingAddress.state ? shippingAddress.state.trim().toUpperCase() : 'destino';
+      return {
+        success: false,
+        requiresQuote: true,
+        error: `Las entregas en ${stateLabel} requieren una cotización personalizada de impuestos y envío antes de pagar. Por favor solicita tu cotización con nuestro equipo de concierge.`,
+      };
+    }
+    return { success: true };
+  }
+
+  // 1. Out-of-state address (California) is blocked on server
+  const caRes = simulateServerCheckoutValidation({ state: 'CA', country: 'US' });
+  assert.strictEqual(caRes.success, false, 'CA order must fail server validation');
+  assert.strictEqual(caRes.requiresQuote, true);
+  assert(caRes.error.includes('cotización personalizada'));
+  assert(caRes.error.includes('CA'));
+
+  // 2. Out-of-state address (Florida, New York) are blocked on server
+  const flRes = simulateServerCheckoutValidation({ state: 'FL', country: 'US' });
+  assert.strictEqual(flRes.success, false);
+  assert.strictEqual(flRes.requiresQuote, true);
+
+  const nyRes = simulateServerCheckoutValidation({ state: 'NY', country: 'USA' });
+  assert.strictEqual(nyRes.success, false);
+  assert.strictEqual(nyRes.requiresQuote, true);
+
+  // 3. Texas deliveries (TX, Texas, TEJAS) are NOT blocked and proceed to Stripe Checkout
+  const txRes = simulateServerCheckoutValidation({ state: 'TX', country: 'US' });
+  assert.strictEqual(txRes.success, true);
+  assert.strictEqual(txRes.requiresQuote, undefined);
+
+  const texasFullRes = simulateServerCheckoutValidation({ state: 'Texas', country: 'US' });
+  assert.strictEqual(texasFullRes.success, true);
 });
 
 test('Out-of-state delivery with discount (e.g. Florida): $0 Texas tax + $25 shipping', () => {
