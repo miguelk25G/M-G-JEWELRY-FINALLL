@@ -526,12 +526,26 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         }
         if (recoveryResult.status === 'open') {
           session = recoveredSession
-        } else {
-          // Si la conciliación falla, conserva la reserva y devuelve un estado de revisión
+        } else if (recoveryResult.status === 'expired') {
+          return {
+            success: false,
+            status: 'expired',
+            error: "La sesión de pago expiró sin completarse. La reserva de tus artículos ha sido liberada; por favor intenta nuevamente.",
+            orderId: order.id,
+          }
+        } else if (recoveryResult.status === 'paid' || recoveryResult.status === 'review_required') {
+          // El pago está confirmado en Stripe pero pendiente en la base de datos: estado de revisión
           return {
             success: false,
             status: 'review_required',
-            error: "Tu pago fue procesado por Stripe, pero la confirmación automática está pendiente de verificación. La reserva de tus artículos se conserva segura mientras nuestro equipo revisa el pedido.",
+            error: "Tu pago está confirmado en Stripe, pero la confirmación automática con nuestra base de datos está pendiente de verificación. La reserva de tus artículos se conserva segura mientras nuestro equipo revisa el pedido.",
+            orderId: order.id,
+          }
+        } else {
+          return {
+            success: false,
+            status: recoveryResult.status || 'failed',
+            error: recoveryResult.error || "No se pudo completar el pago en la pasarela. No se ha realizado ningún cobro.",
             orderId: order.id,
           }
         }
@@ -552,27 +566,21 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       }
     }
 
-    // 5. Create initial pending Transaction record linked to order
+    // 5. Idempotent checkout session registration shared with webhook recovery
     try {
-      await db.$transaction(async (tx: any) => {
-        await tx.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } })
-        await tx.transaction.create({
-          data: {
-            orderId: order.id,
-            provider: "stripe",
-            providerId: session.id,
-            status: "pending",
-            amount: pricing.total,
-            currency: "USD",
-            metadata: JSON.stringify({
-              sessionId: session.id,
-              orderNumber: order.orderNumber,
-              stripeUrl: session.url,
-              initiatedAt: new Date().toISOString(),
-            }),
-          },
-        })
-      })
+      const stripeInstance = getStripe()
+      const paymentService = createPaymentService(db, stripeInstance)
+      const regResult = await paymentService.registerCheckoutSession(order.id, session)
+
+      if (regResult.alreadyPaid) {
+        // Si el webhook llegó primero y ya registró el pago: conservar ese registro y redirigir a success
+        return {
+          success: true,
+          url: `${hostUrl}/checkout/success?session_id=${session.id}`,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        }
+      }
     } catch (dbRegisterError: any) {
       console.error("[Order Registration Error] Failed to link Stripe session to DB:", {
         orderId: order.id,
@@ -647,7 +655,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         return {
           success: false,
           status: "review_required",
-          error: "Tu pago fue procesado por Stripe, pero la confirmación automática con nuestra base de datos requiere verificación. La reserva de tus joyas se mantiene asegurada y nuestro equipo revisará tu pedido a la brevedad.",
+          error: "Tu pago está confirmado en Stripe, pero la confirmación automática con nuestra base de datos está pendiente de verificación. La reserva de tus joyas se mantiene asegurada y nuestro equipo revisará tu pedido a la brevedad.",
           orderId: order.id,
         }
       }
@@ -675,6 +683,13 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         ).catch((relErr: any) => {
           console.error(`[Order Stock Release Error] Failed to release stock for order ${order.id}:`, relErr?.message || relErr)
         })
+
+        return {
+          success: false,
+          status: "expired",
+          error: "La sesión de pago expiró sin registrarse ningún cobro. El inventario ha sido liberado para nuevos pedidos.",
+          orderId: order.id,
+        }
       } else {
         // Stripe expire failed or outcome is uncertain. DO NOT release stock to prevent overselling.
         // Reservation remains active and will be reconciled when the webhook or admin sync runs.
@@ -683,7 +698,9 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
       return {
         success: false,
-        error: "Ocurrió un error al registrar la sesión de pago. Tu pedido se mantendrá seguro mientras se concilia con Stripe.",
+        status: "unconfirmed",
+        error: "No se pudo confirmar la comunicación con la pasarela de pagos y no se realizó ningún cargo. Tu reserva se conserva temporalmente mientras se concilia con Stripe.",
+        orderId: order.id,
       }
     }
 

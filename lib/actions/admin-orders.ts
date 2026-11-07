@@ -6,7 +6,9 @@ import { requireAdminSession } from "@/lib/actions/auth-helper"
 import { getStripe } from "@/lib/stripe"
 import { createAdminOrderService } from "@/lib/admin-orders"
 
-export type AdminActionResult = { success: true; error?: undefined } | { success: false; error: string }
+export type AdminActionResult =
+  | { success: true; message?: string; status?: string; error?: undefined }
+  | { success: false; error: string; status?: string }
 
 // Server actions invoked by Next.js Admin interface
 export async function updateOrderStatus(orderId: string, status: string): Promise<AdminActionResult> {
@@ -39,9 +41,13 @@ export async function syncOrderPaymentWithStripe(orderId: string): Promise<Admin
   try {
     await requireAdminSession()
     const service = createAdminOrderService(db, getStripe())
-    await service.syncOrderPaymentWithStripe(orderId)
+    const res = await service.syncOrderPaymentWithStripe(orderId)
     revalidatePath("/admin/orders")
-    return { success: true }
+    return {
+      success: true,
+      message: res.message,
+      status: res.status,
+    }
   } catch (error: any) {
     console.error("Failed to sync Stripe payment:", error)
     return { success: false, error: String(error.message || error) }

@@ -185,9 +185,43 @@ export function createAdminOrderService(db: any, stripe: any) {
     }
 
     const paymentService = createPaymentService(db, stripe)
+    let syncOutcome = {
+      success: true,
+      status: order.paymentStatus,
+      orderStatus: order.status,
+      message: "Estado sincronizado con Stripe.",
+    }
 
     if (order.stripeSessionId) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripeSessionId)
       await paymentService.reconcile(order.stripeSessionId)
+
+      const updatedOrder = await db.order.findUnique({ where: { id: orderId } })
+      const isPaid = session.payment_status === "paid" ||
+        (session.payment_status === "no_payment_required" && session.amount_total === 0)
+
+      if (updatedOrder?.paymentStatus === "paid") {
+        syncOutcome.message = "Pago confirmado en Stripe. Pedido actualizado a 'Pagado / En preparación'."
+        syncOutcome.status = "paid"
+      } else if (isPaid && updatedOrder?.paymentStatus !== "paid") {
+        syncOutcome.message = "El pago está confirmado en Stripe, pero la confirmación en base de datos requiere revisión manual."
+        syncOutcome.status = "review_required"
+      } else if (session.status === "expired" || updatedOrder?.status === "cancelled") {
+        syncOutcome.message = "La sesión de Stripe expiró sin pago. El pedido fue cancelado y el inventario liberado."
+        syncOutcome.status = "cancelled"
+      } else if (session.status === "open") {
+        syncOutcome.message = "La sesión en Stripe sigue abierta y pendiente de pago por el cliente."
+        syncOutcome.status = "pending"
+      } else if (updatedOrder?.paymentStatus === "refunded") {
+        syncOutcome.message = "El pedido fue totalmente reembolsado en Stripe."
+        syncOutcome.status = "refunded"
+      } else if (updatedOrder?.paymentStatus === "partially_refunded") {
+        syncOutcome.message = "El pedido tiene un reembolso parcial registrado en Stripe."
+        syncOutcome.status = "partially_refunded"
+      } else {
+        syncOutcome.message = `Sincronización completada. Estado de pago: ${updatedOrder?.paymentStatus || "pendiente"}.`
+        syncOutcome.status = updatedOrder?.paymentStatus || "pending"
+      }
     } else {
       let candidateSession: any = null
       try {
@@ -200,13 +234,30 @@ export function createAdminOrderService(db: any, stripe: any) {
       }
 
       if (candidateSession) {
-        await paymentService.recoverOrphanSession(order.id, candidateSession)
+        const recoverRes = await paymentService.recoverOrphanSession(order.id, candidateSession)
+        const updatedOrder = await db.order.findUnique({ where: { id: orderId } })
+        if (recoverRes.reconciled && updatedOrder?.paymentStatus === "paid") {
+          syncOutcome.message = "Sesión huérfana vinculada y pago confirmado en Stripe. Pedido en preparación."
+          syncOutcome.status = "paid"
+        } else if (recoverRes.status === "review_required" || (candidateSession.payment_status === "paid" && updatedOrder?.paymentStatus !== "paid")) {
+          syncOutcome.message = "Sesión vinculada, pero el pago en Stripe requiere revisión administrativa."
+          syncOutcome.status = "review_required"
+        } else if (candidateSession.status === "expired") {
+          syncOutcome.message = "Sesión vinculada pero expirada sin pago. Pedido cancelado y stock liberado."
+          syncOutcome.status = "cancelled"
+        } else if (candidateSession.status === "open") {
+          syncOutcome.message = "Sesión vinculada exitosamente. Sigue abierta y pendiente de pago por el cliente."
+          syncOutcome.status = "pending"
+        } else {
+          syncOutcome.message = `Sesión vinculada. Estado: ${candidateSession.status}.`
+          syncOutcome.status = candidateSession.status
+        }
       } else {
         throw new Error("No se encontró una sesión de Stripe vinculada a este pedido. Requiere conciliación manual.")
       }
     }
 
-    return { success: true }
+    return syncOutcome
   }
 
   return { updateOrderStatus, markOrderAsPaid, syncOrderPaymentWithStripe }

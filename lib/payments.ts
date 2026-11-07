@@ -330,7 +330,127 @@ export function createPaymentService(db: any, stripe: any) {
     })
   }
 
-  return { processEvent, reconcile, cancel, releaseReservation, recoverOrphanSession }
+  async function registerCheckoutSession(orderId: string, session: any) {
+    return await atomic(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true, transactions: true },
+      })
+      if (!order) {
+        throw new Error(`Order ${orderId} not found.`)
+      }
+
+      // Check for session ID conflict across different orders
+      const conflicting = await tx.order.findFirst({
+        where: { stripeSessionId: session.id, id: { not: order.id } },
+      })
+      if (conflicting) {
+        throw new Error(`Stripe session ${session.id} is already linked to order ${conflicting.id}`)
+      }
+
+      // Validate matching financial amounts and references
+      if (order.stripeSessionId && order.stripeSessionId !== session.id) {
+        throw new Error(`Order ${order.id} already has a different linked session: ${order.stripeSessionId}`)
+      }
+      if (session.client_reference_id !== order.id || session.metadata?.orderId !== order.id) {
+        throw new Error('Checkout session references do not match the stored order.')
+      }
+      if (session.amount_total !== Math.round(order.total * 100) ||
+          session.currency?.toUpperCase() !== order.currency.toUpperCase()) {
+        throw new Error('Checkout session amount or currency does not match the stored order.')
+      }
+
+      // Link session if not yet linked
+      if (!order.stripeSessionId) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { stripeSessionId: session.id },
+        })
+        order.stripeSessionId = session.id
+      }
+
+      // Check if webhook arrived FIRST and already recorded the payment
+      const isPaidInOrder = ['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus) ||
+        ['processing', 'completed', 'shipped', 'delivered'].includes(order.status)
+
+      const isPaidInSession = session.payment_status === 'paid' ||
+        (session.payment_status === 'no_payment_required' && session.amount_total === 0)
+
+      const existingTx = await tx.transaction.findFirst({
+        where: { orderId: order.id, provider: 'stripe', providerId: session.id },
+      })
+
+      if (isPaidInOrder || isPaidInSession) {
+        // Webhook arrived first or session was already completed!
+        // Strictly conserve the payment record and its state: DO NOT downgrade to pending!
+        if (!existingTx) {
+          await tx.transaction.create({
+            data: {
+              orderId: order.id,
+              provider: 'stripe',
+              providerId: session.id,
+              status: 'succeeded',
+              amount: order.total,
+              currency: order.currency || 'USD',
+              metadata: JSON.stringify({
+                sessionId: session.id,
+                orderNumber: order.orderNumber,
+                stripeUrl: session.url,
+                paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
+                recoveredAt: new Date().toISOString(),
+              }),
+            },
+          })
+        } else if (existingTx.status !== 'succeeded') {
+          await tx.transaction.update({
+            where: { id: existingTx.id },
+            data: { status: 'succeeded' },
+          })
+        }
+
+        // If order was not yet updated to paid in DB, apply session transition
+        if (order.paymentStatus !== 'paid' && isPaidInSession) {
+          await applySession(tx, session, false)
+        }
+
+        return {
+          success: true,
+          alreadyPaid: true,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        }
+      }
+
+      // Normal initial checkout flow: create pending transaction idempotently if not already created
+      if (!existingTx) {
+        await tx.transaction.create({
+          data: {
+            orderId: order.id,
+            provider: 'stripe',
+            providerId: session.id,
+            status: 'pending',
+            amount: order.total,
+            currency: order.currency || 'USD',
+            metadata: JSON.stringify({
+              sessionId: session.id,
+              orderNumber: order.orderNumber,
+              stripeUrl: session.url,
+              initiatedAt: new Date().toISOString(),
+            }),
+          },
+        })
+      }
+
+      return {
+        success: true,
+        alreadyPaid: false,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      }
+    })
+  }
+
+  return { processEvent, reconcile, cancel, releaseReservation, recoverOrphanSession, registerCheckoutSession }
 }
 
 export function createWebhookHandler(getService: () => any, getStripe: () => any, getSecret: () => string | undefined) {

@@ -114,7 +114,13 @@ export function OrdersClient({ orders }: { orders: any[] }) {
     try {
       const res = await syncOrderPaymentWithStripe(orderId)
       if (res.success) {
-        toast.success(`Estado sincronizado con Stripe correctamente`, { id: toastId })
+        if (res.status === 'review_required') {
+          toast.warning(res.message || `Pago confirmado en Stripe pero pendiente en base de datos. Requiere revisión manual.`, { id: toastId, duration: 6000 })
+        } else if (res.status === 'cancelled') {
+          toast.info(res.message || `Sesión de Stripe expirada sin pago. Reserva liberada.`, { id: toastId, duration: 5000 })
+        } else {
+          toast.success(res.message || `Estado sincronizado con Stripe correctamente`, { id: toastId, duration: 5000 })
+        }
       } else {
         toast.error(`Error: ${res.error}`, { id: toastId })
       }

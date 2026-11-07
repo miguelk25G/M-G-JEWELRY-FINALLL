@@ -496,3 +496,86 @@ test('two concurrent markOrderAsPaid requests: atomic conditional check ensures 
   assert.equal(f.state().order.paymentStatus, 'paid')
   assert.equal(f.state().transactions.filter((t: any) => t.provider === 'manual_admin').length, 1, 'Exactly one payment transaction must be created')
 })
+
+test('shared idempotent write - Order 1: checkout registers first, webhook completes later -> exactly 1 transaction succeeded', async () => {
+  const f = fixture()
+  f.state().order.stripeSessionId = null
+  f.state().order.paymentStatus = 'pending'
+  f.state().order.reservationStatus = 'reserved'
+  f.state().transactions = []
+
+  // Step 1: Initial checkout registers session
+  const regResult = await f.service.registerCheckoutSession('o1', f.session)
+  assert.equal(regResult.success, true)
+  assert.equal(regResult.alreadyPaid, false)
+  assert.equal(f.state().order.stripeSessionId, 'cs_1')
+  assert.equal(f.state().transactions.length, 1)
+  assert.equal(f.state().transactions[0].status, 'pending')
+
+  // Step 2: Stripe webhook arrives later
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+  assert.equal(f.state().transactions.length, 1, 'Must maintain exactly one transaction')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+})
+
+test('shared idempotent write - Order 2: webhook arrives first, checkout registers later -> conserves paid record, exactly 1 transaction succeeded', async () => {
+  const f = fixture()
+  f.state().order.stripeSessionId = null
+  f.state().order.paymentStatus = 'pending'
+  f.state().order.reservationStatus = 'reserved'
+  f.state().transactions = []
+
+  // Step 1: Webhook arrives first
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+  assert.equal(f.state().transactions.length, 1, 'Webhook created initial transaction')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+
+  // Step 2: Checkout runs registerCheckoutSession later
+  const regResult = await f.service.registerCheckoutSession('o1', f.session)
+  assert.equal(regResult.success, true)
+  assert.equal(regResult.alreadyPaid, true, 'Checkout recognizes payment was already recorded')
+  assert.equal(f.state().order.paymentStatus, 'paid', 'Payment status must NOT be downgraded to pending')
+  assert.equal(f.state().transactions.length, 1, 'Must not duplicate transaction')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+})
+
+test('admin reconciliation reflects real outcome: paid, expired and open sessions', async () => {
+  const f = fixture()
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
+  // 1. Session is paid in Stripe
+  f.paid()
+  const paidResult = await adminService.syncOrderPaymentWithStripe('o1')
+  assert.equal(paidResult.success, true)
+  assert.equal(paidResult.status, 'paid')
+  assert.match(paidResult.message, /Pago confirmado en Stripe/)
+  assert.equal(f.state().order.paymentStatus, 'paid')
+
+  // 2. Another order where session is expired in Stripe
+  const f2 = fixture()
+  f2.session.status = 'expired'
+  f2.session.payment_status = 'unpaid'
+  const adminService2 = createAdminOrderService(f2.db, f2.stripe)
+  const expiredResult = await adminService2.syncOrderPaymentWithStripe('o1')
+  assert.equal(expiredResult.success, true)
+  assert.equal(expiredResult.status, 'cancelled')
+  assert.match(expiredResult.message, /expiró sin pago/)
+  assert.equal(f2.state().order.status, 'cancelled')
+  assert.equal(f2.state().stock, 1, 'Expired session restocks inventory')
+
+  // 3. Another order where session is open in Stripe
+  const f3 = fixture()
+  f3.session.status = 'open'
+  f3.session.payment_status = 'unpaid'
+  const adminService3 = createAdminOrderService(f3.db, f3.stripe)
+  const openResult = await adminService3.syncOrderPaymentWithStripe('o1')
+  assert.equal(openResult.success, true)
+  assert.equal(openResult.status, 'pending')
+  assert.match(openResult.message, /sigue abierta y pendiente de pago/)
+})
