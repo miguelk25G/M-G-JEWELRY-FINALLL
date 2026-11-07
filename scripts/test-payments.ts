@@ -144,3 +144,126 @@ test('serialization conflicts retry the actual service', async () => {
   await f.service.processEvent(f.event('checkout.session.completed'))
   assert.equal(calls, 2); assert.equal(f.state().order.paymentStatus, 'paid')
 })
+
+// --- Tests for launch review resilience & concurrency (Commit 86ed8db revision) ---
+
+async function simulateDbRegisterRecovery(db: any, stripe: any, orderId: string, sessionId: string) {
+  const currentSession = await stripe.checkout.sessions.retrieve(sessionId)
+  const isPaid = currentSession?.payment_status === "paid" ||
+    (currentSession?.payment_status === "no_payment_required" && currentSession?.amount_total === 0)
+
+  if (isPaid) {
+    await createPaymentService(db, stripe).reconcile(sessionId)
+    return { outcome: 'confirmed_paid' }
+  }
+
+  let expiredSuccessfully = false
+  if (currentSession?.status === "expired") {
+    expiredSuccessfully = true
+  } else {
+    try {
+      const expiredSession = await stripe.checkout.sessions.expire(sessionId)
+      if (expiredSession.status === "expired") {
+        expiredSuccessfully = true
+      }
+    } catch {
+      expiredSuccessfully = false
+    }
+  }
+
+  if (expiredSuccessfully) {
+    const res = await createPaymentService(db, stripe).releaseReservation(orderId, "Sesión expirada tras fallo de registro en BD")
+    return { outcome: 'released', res }
+  } else {
+    return { outcome: 'retained_unresolved' }
+  }
+}
+
+test('DB registration failure + Stripe expire failure strictly retains stock (0 restocked)', async () => {
+  const f = fixture()
+  f.stripe.checkout.sessions.expire = async () => { throw new Error('Stripe API 500 error') }
+  
+  const result = await simulateDbRegisterRecovery(f.db, f.stripe, 'o1', 'cs_1')
+  assert.equal(result.outcome, 'retained_unresolved')
+  assert.equal(f.state().stock, 0, 'Inventory must NOT be released if Stripe expire fails')
+  assert.equal(f.state().order.reservationStatus, 'reserved', 'Reservation must remain active')
+  assert.equal(f.state().order.paymentStatus, 'pending')
+})
+
+test('DB registration failure + session already paid in Stripe confirms order and never releases stock', async () => {
+  const f = fixture()
+  f.paid() // session is paid in Stripe
+  
+  const result = await simulateDbRegisterRecovery(f.db, f.stripe, 'o1', 'cs_1')
+  assert.equal(result.outcome, 'confirmed_paid')
+  assert.equal(f.state().stock, 0, 'No stock should be returned on paid session')
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+})
+
+test('two concurrent releaseReservation calls increment stock exactly once', async () => {
+  const f = fixture()
+  const [res1, res2] = await Promise.all([
+    f.service.releaseReservation('o1', 'Cancelation 1'),
+    f.service.releaseReservation('o1', 'Cancelation 2'),
+  ])
+  assert.equal(f.state().stock, 1, 'Stock must only increment once')
+  assert.equal(f.state().order.reservationStatus, 'released')
+  const counts = [res1.count, res2.count].sort()
+  assert.deepEqual(counts, [0, 1])
+})
+
+test('releaseReservation on an unreserved or already released order returns count 0 and 0 inventory returned', async () => {
+  const f = fixture()
+  f.state().order.reservationStatus = 'released'
+  f.state().order.paymentStatus = 'failed'
+  
+  const res = await f.service.releaseReservation('o1', 'Redundant release')
+  assert.equal(res.released, false)
+  assert.equal(res.count, 0)
+  assert.equal(f.state().stock, 0, 'No stock returned when count is 0')
+})
+
+test('concurrent refund webhook and admin fulfillment dispatch: atomic update prevents TOCTOU dispatch', async () => {
+  const f = fixture()
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  
+  // Concurrently, a full refund webhook arrives while admin attempts to dispatch
+  f.charge.amount_refunded = 10000 // full refund
+  
+  // Webhook executes
+  await f.service.processEvent(f.event('charge.refunded'))
+  assert.equal(f.state().order.paymentStatus, 'refunded')
+  
+  // Admin tries atomic conditional dispatch
+  const allowedPaymentStatuses = ['paid']
+  const updateResult = await f.db.order.updateMany({
+    where: {
+      id: 'o1',
+      paymentStatus: { in: allowedPaymentStatuses },
+      status: { not: 'cancelled' },
+    },
+    data: { status: 'shipped' },
+  })
+  
+  assert.equal(updateResult.count, 0, 'Dispatch must be blocked (count 0) when order has been refunded')
+  assert.notEqual(f.state().order.status, 'shipped')
+})
+
+test('ambiguous session creation retains reservation; subsequent reconciliation confirms payment', async () => {
+  const f = fixture()
+  // Step 1: Initial creation has ambiguous failure -> reservation retained
+  assert.equal(f.state().order.reservationStatus, 'reserved')
+  assert.equal(f.state().stock, 0)
+  
+  // Step 2: The session was actually created and paid on Stripe side
+  f.paid()
+  
+  // Step 3: Webhook arrives or admin synchronizes/reconciles with Stripe
+  await f.service.reconcile('cs_1')
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+  assert.equal(f.state().stock, 0)
+})

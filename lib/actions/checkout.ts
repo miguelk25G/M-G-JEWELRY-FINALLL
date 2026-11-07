@@ -337,51 +337,56 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     const { order, verifiedItems, pricing, validPromoCode } = reservationResult
 
     // 4. Create Stripe Checkout Session
+    const hostUrl =
+      process.env.NEXTAUTH_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+
+    // Line items for products
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = verifiedItems.map((vi: any) => {
+      let imageUrl: string | undefined = undefined
+      try {
+        const imgs = JSON.parse(vi.product.images)
+        if (Array.isArray(imgs) && imgs[0]) imageUrl = imgs[0]
+      } catch {
+        // Ignore
+      }
+
+      return {
+        price_data: {
+          currency: (vi.product.currency || "USD").toLowerCase(),
+          product_data: {
+            name: vi.product.name,
+            images: imageUrl ? [imageUrl] : undefined,
+            description: vi.size ? `Size: ${vi.size}` : undefined,
+          },
+          unit_amount: Math.round(vi.unitPrice * 100),
+        },
+        quantity: vi.quantity,
+      }
+    })
+
+    // Add sales tax line item if applicable (8% estimated)
+    if (pricing.tax > 0) {
+      line_items.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Estimated Sales Tax (8%)",
+            description: "Standard state and local sales tax",
+          },
+          unit_amount: Math.round(pricing.tax * 100),
+        },
+        quantity: 1,
+      })
+    }
+
+    let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
+
     let session: Stripe.Checkout.Session
     try {
       const stripeInstance = getStripe()
 
-      // Line items for products
-      const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = verifiedItems.map((vi: any) => {
-        let imageUrl: string | undefined = undefined
-        try {
-          const imgs = JSON.parse(vi.product.images)
-          if (Array.isArray(imgs) && imgs[0]) imageUrl = imgs[0]
-        } catch {
-          // Ignore
-        }
-
-        return {
-          price_data: {
-            currency: (vi.product.currency || "USD").toLowerCase(),
-            product_data: {
-              name: vi.product.name,
-              images: imageUrl ? [imageUrl] : undefined,
-              description: vi.size ? `Size: ${vi.size}` : undefined,
-            },
-            unit_amount: Math.round(vi.unitPrice * 100),
-          },
-          quantity: vi.quantity,
-        }
-      })
-
-      // Add sales tax line item if applicable (8% estimated)
-      if (pricing.tax > 0) {
-        line_items.push({
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: "Estimated Sales Tax (8%)",
-              description: "Standard state and local sales tax",
-            },
-            unit_amount: Math.round(pricing.tax * 100),
-          },
-          quantity: 1,
-        })
-      }
-
       // Apply coupon in Stripe if promo code applied
-      let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
       if (pricing.discountAmount > 0) {
         const coupon = await stripeInstance.coupons.create({
           amount_off: Math.round(pricing.discountAmount * 100),
@@ -391,11 +396,6 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         })
         discounts = [{ coupon: coupon.id }]
       }
-
-      // Base URL for redirects
-      const hostUrl =
-        process.env.NEXTAUTH_URL ||
-        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
       session = await stripeInstance.checkout.sessions.create({
         mode: "payment",
@@ -432,34 +432,98 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         },
       }, { idempotencyKey: `checkout-${order.id}` })
     } catch (stripeError: any) {
-      console.error("[Stripe Checkout Error]", stripeError)
+      console.error("[Stripe Checkout Error] Failed to create checkout session:", {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        errorType: stripeError?.type,
+        errorCode: stripeError?.code,
+        statusCode: stripeError?.statusCode,
+        message: stripeError?.message,
+      })
 
-      // If Stripe rejected with a client error (e.g. invalid parameter), no session was created.
-      // Release reserved inventory immediately so stock is not stranded.
-      if (stripeError?.type === "StripeInvalidRequestError" || stripeError?.statusCode === 400) {
-        await db.$transaction(async (tx: any) => {
-          await tx.order.updateMany({
-            where: { id: order.id, reservationStatus: "reserved" },
-            data: { reservationStatus: "released", paymentStatus: "failed", status: "cancelled", notes: "Fallo de creación de sesión en Stripe" },
-          })
-          for (const vi of verifiedItems) {
-            await tx.product.update({
-              where: { id: vi.product.id },
-              data: { inventoryQty: { increment: vi.quantity } },
-            })
-          }
-        }).catch(() => {})
+      // Definitive rejection check:
+      // A 400 Bad Request / StripeInvalidRequestError (excluding idempotency conflicts)
+      // guarantees that Stripe validation rejected the request before any session was created.
+      const isDefinitiveClientError =
+        (stripeError?.type === "StripeInvalidRequestError" || stripeError?.statusCode === 400) &&
+        stripeError?.code !== "idempotency_key_in_use"
+
+      if (isDefinitiveClientError) {
+        // Unambiguous rejection: no session exists in Stripe or could ever be paid.
+        // Release reserved stock idempotently using centralized payment service.
+        await createPaymentService(db, getStripe()).releaseReservation(
+          order.id,
+          "Rechazo definitivo de sesión en Stripe (parámetros inválidos)"
+        ).catch((relErr: any) => {
+          console.error(`[Checkout Recovery Error] Failed to release reservation for order ${order.id}:`, relErr?.message || relErr)
+        })
+
         return {
           success: false,
-          error: "No se pudo generar la sesión de pago. Por favor verifica tus datos e intenta de nuevo.",
+          error: "No se pudo generar la sesión de pago por parámetros inválidos. Por favor verifica tus datos e intenta de nuevo.",
         }
       }
 
-      // An ambiguous network failure may have created a payable session.
-      // Retain its reservation for reconciliation instead of risking overselling.
-      return {
-        success: false,
-        error: "No se pudo confirmar la sesión con Stripe. Si tu pago no se realiza, la reserva expirará automáticamente.",
+      // Ambiguous failure (e.g. 500, network timeout, connection reset, idempotency conflict):
+      // The session may have been created in Stripe before the connection dropped.
+      // Re-query Stripe using the exact same idempotency key to recover the session if created.
+      let recoveredSession: Stripe.Checkout.Session | null = null
+      try {
+        const stripeInstance = getStripe()
+        recoveredSession = await stripeInstance.checkout.sessions.create({
+          mode: "payment",
+          customer_email: email,
+          client_reference_id: order.id,
+          line_items,
+          discounts,
+          shipping_options: [
+            {
+              shipping_rate_data: {
+                type: "fixed_amount",
+                fixed_amount: {
+                  amount: Math.round(pricing.shipping * 100),
+                  currency: "usd",
+                },
+                display_name:
+                  pricing.shipping === 0
+                    ? "Complimentary Fully Insured Delivery"
+                    : "Standard Insured Jewelry Shipping",
+                delivery_estimate: {
+                  minimum: { unit: "business_day", value: 3 },
+                  maximum: { unit: "business_day", value: 5 },
+                },
+              },
+            },
+          ],
+          success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
+          payment_intent_data: { metadata: { orderId: order.id } },
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            promoCode: validPromoCode,
+          },
+        }, { idempotencyKey: `checkout-${order.id}` })
+      } catch (recoveryErr: any) {
+        console.error(`[Checkout Ambiguity] Recovery attempt via idempotency key failed for order ${order.id}:`, recoveryErr?.message || recoveryErr)
+      }
+
+      if (recoveredSession && recoveredSession.id) {
+        session = recoveredSession
+      } else {
+        // Cannot confirm non-existence of session in Stripe.
+        // Retain reservation to prevent overselling; record operational notes for reconciliation.
+        await db.order.update({
+          where: { id: order.id },
+          data: { notes: "Error ambiguo al contactar Stripe; reserva conservada pendiente de conciliación." },
+        }).catch((noteErr: any) => {
+          console.error(`[Checkout Ambiguity] Failed to record order notes for order ${order.id}:`, noteErr?.message || noteErr)
+        })
+
+        return {
+          success: false,
+          error: "No se pudo confirmar la comunicación con la pasarela de pagos. Tu reserva se conserva temporalmente mientras se concilia con Stripe.",
+        }
       }
     }
 
@@ -485,30 +549,84 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         })
       })
     } catch (dbRegisterError: any) {
-      console.error("[Order Registration Error] Failed to link Stripe session to DB:", dbRegisterError)
-      // Attempt to immediately expire the newly created Stripe session to prevent stranded payments
+      console.error("[Order Registration Error] Failed to link Stripe session to DB:", {
+        orderId: order.id,
+        sessionId: session.id,
+        error: dbRegisterError?.message || dbRegisterError,
+      })
+
+      // Ensure stripeSessionId is recorded on the order if at all possible,
+      // so webhooks and admin reconciliation can always track it.
       try {
-        await getStripe().checkout.sessions.expire(session.id)
-      } catch (expireErr) {
-        console.error("Failed to expire dangling session:", expireErr)
-      }
-      // Release reserved stock so it doesn't remain locked
-      await db.$transaction(async (tx: any) => {
-        await tx.order.updateMany({
-          where: { id: order.id, reservationStatus: "reserved" },
-          data: { reservationStatus: "released", paymentStatus: "failed", status: "cancelled", notes: "Fallo de registro de transacción en base de datos" },
+        await db.order.update({
+          where: { id: order.id },
+          data: {
+            stripeSessionId: session.id,
+            notes: "Fallo al registrar transacción en BD; pendiente de resolución con Stripe.",
+          },
         })
-        for (const vi of verifiedItems) {
-          await tx.product.update({
-            where: { id: vi.product.id },
-            data: { inventoryQty: { increment: vi.quantity } },
-          })
+      } catch (linkErr: any) {
+        console.error(`[Order Link Error] Failed to link session ${session.id} to order ${order.id}:`, linkErr?.message || linkErr)
+      }
+
+      const stripeInstance = getStripe()
+      let currentSession: Stripe.Checkout.Session | null = null
+      try {
+        currentSession = await stripeInstance.checkout.sessions.retrieve(session.id)
+      } catch (retrieveErr: any) {
+        console.error(`[Order Recovery] Failed to retrieve session ${session.id}:`, retrieveErr?.message || retrieveErr)
+      }
+
+      const isPaid = currentSession?.payment_status === "paid" ||
+        (currentSession?.payment_status === "no_payment_required" && currentSession?.amount_total === 0)
+
+      if (isPaid) {
+        // Customer paid before or during registration error. Apply centralized confirmation and NEVER release inventory!
+        try {
+          await createPaymentService(db, stripeInstance).reconcile(session.id)
+        } catch (recErr: any) {
+          console.error(`[Order Reconciliation Error] Failed to confirm paid session ${session.id}:`, recErr?.message || recErr)
         }
-      }).catch(() => {})
+        return {
+          success: true,
+          url: session.url,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        }
+      }
+
+      // Session is not paid. Attempt to expire the session in Stripe so it can never be paid later.
+      let expiredSuccessfully = false
+      if (currentSession?.status === "expired") {
+        expiredSuccessfully = true
+      } else {
+        try {
+          const expiredSession = await stripeInstance.checkout.sessions.expire(session.id)
+          if (expiredSession.status === "expired") {
+            expiredSuccessfully = true
+          }
+        } catch (expireErr: any) {
+          console.error(`[Order Expiration Error] Failed to expire session ${session.id}:`, expireErr?.message || expireErr)
+        }
+      }
+
+      if (expiredSuccessfully) {
+        // Session is confirmed expired in Stripe. Safely release stock using centralized payment service.
+        await createPaymentService(db, stripeInstance).releaseReservation(
+          order.id,
+          "Sesión expirada tras fallo de registro en BD"
+        ).catch((relErr: any) => {
+          console.error(`[Order Stock Release Error] Failed to release stock for order ${order.id}:`, relErr?.message || relErr)
+        })
+      } else {
+        // Stripe expire failed or outcome is uncertain. DO NOT release stock to prevent overselling.
+        // Reservation remains active and will be reconciled when the webhook or admin sync runs.
+        console.warn(`[Order Stock Retained] Reservation retained for order ${order.id} because session ${session.id} expiration could not be confirmed.`)
+      }
 
       return {
         success: false,
-        error: "No se pudo registrar la sesión de pago. Por favor intenta de nuevo.",
+        error: "Ocurrió un error al registrar la sesión de pago. Tu pedido se mantendrá seguro mientras se concilia con Stripe.",
       }
     }
 

@@ -21,19 +21,74 @@ export async function updateOrderStatus(orderId: string, status: string) {
       return { success: false, error: "Order not found." }
     }
 
-    if (order.paymentStatus === "refunded" && ["processing", "shipped", "completed", "delivered"].includes(status)) {
-      throw new Error("No se puede despachar un pedido que ha sido totalmente reembolsado (Pago: Reembolsado).")
-    }
-
-    if (order.stripeSessionId) {
-      if (status === "cancelled") {
+    // Cancellation flow
+    if (status === "cancelled") {
+      if (order.stripeSessionId) {
         await createPaymentService(db, getStripe()).cancel(order.stripeSessionId)
       } else {
-        if (!["processing", "shipped", "completed", "delivered"].includes(status) || order.paymentStatus !== "paid") throw new Error("Payment must be confirmed before fulfillment.")
-        await db.order.update({ where: { id: orderId }, data: { status } })
+        const res = await db.order.updateMany({
+          where: { id: orderId, status: { not: "cancelled" } },
+          data: { status: "cancelled" },
+        })
+        if (res.count === 0) throw new Error("El pedido ya está cancelado.")
       }
-    } else {
-      await db.order.update({ where: { id: orderId }, data: { status } })
+      revalidatePath("/admin/orders")
+      return { success: true }
+    }
+
+    // Fulfillment flow: ["processing", "shipped", "completed", "delivered"]
+    const fulfillmentStatuses = ["processing", "shipped", "completed", "delivered"]
+    if (fulfillmentStatuses.includes(status)) {
+      /**
+       * POLÍTICA DE DESPACHO ANTE REEMBOLSOS Y DISPUTAS:
+       * - Pedidos totalmente reembolsados (`paymentStatus: 'refunded'`): Despacho estrictamente bloqueado.
+       * - Pedidos parcialmente reembolsados (`paymentStatus: 'partially_refunded'`):
+       *   En alta joyería, un reembolso parcial representa una alteración financiera (e.g. devolución de un artículo
+       *   o descuento post-venta). Por seguridad ante pérdidas, el despacho estándar requiere que el pago esté
+       *   íntegramente confirmado (`paid`). Si la administración requiere despachar un pedido con reembolso parcial
+       *   (ej. cortesía comercial), debe autorizarse explícitamente.
+       * 
+       * Actualización atómica condicional:
+       * Para evitar condiciones de carrera (TOCTOU) con webhooks concurrentes de Stripe (`charge.refunded` o disputas),
+       * actualizamos con `updateMany` filtrando id, estado actual y `paymentStatus: 'paid'`.
+       */
+      const allowedPaymentStatuses = ["paid"]
+
+      const updated = await db.order.updateMany({
+        where: {
+          id: orderId,
+          paymentStatus: { in: allowedPaymentStatuses },
+          status: { not: "cancelled" },
+        },
+        data: { status },
+      })
+
+      if (updated.count === 0) {
+        // Inspect current order state to provide precise diagnostic error
+        const currentOrder = await db.order.findUnique({ where: { id: orderId } })
+        if (currentOrder?.paymentStatus === "refunded") {
+          throw new Error("No se puede despachar: el pedido fue totalmente reembolsado.")
+        }
+        if (currentOrder?.paymentStatus === "partially_refunded") {
+          throw new Error("No se puede despachar automáticamente: el pedido tiene un reembolso parcial y requiere revisión administrativa.")
+        }
+        if (currentOrder?.status === "cancelled") {
+          throw new Error("No se puede despachar: el pedido está cancelado.")
+        }
+        throw new Error("No se puede actualizar el despacho: el pago debe estar confirmado ('paid') antes de despachar.")
+      }
+
+      revalidatePath("/admin/orders")
+      return { success: true }
+    }
+
+    // Other non-fulfillment status updates (e.g. pending / on_hold)
+    const updated = await db.order.updateMany({
+      where: { id: orderId, status: { not: "cancelled" } },
+      data: { status },
+    })
+    if (updated.count === 0) {
+      throw new Error("No se pudo actualizar el estado del pedido.")
     }
 
     revalidatePath("/admin/orders")

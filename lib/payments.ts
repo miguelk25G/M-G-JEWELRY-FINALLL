@@ -34,11 +34,12 @@ export function createPaymentService(db: any, stripe: any) {
       where: { id: order.id, reservationStatus: 'reserved', paymentStatus: 'pending' },
       data,
     })
-    if (!changed.count) return
+    if (!changed.count) return { released: false, count: 0 }
     for (const item of order.items) {
       if (item.productId) await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
     }
     await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', status: 'pending' }, data: { status: 'failed' } })
+    return { released: true, count: changed.count }
   }
   async function applySession(tx: any, session: any, releaseAllowed = false, reason?: string) {
     const order = await tx.order.findUnique({ where: { stripeSessionId: session.id }, include: { items: true } })
@@ -115,7 +116,14 @@ export function createPaymentService(db: any, stripe: any) {
     await atomic(tx => applySession(tx, session, session.status === 'expired', 'Cancelación voluntaria por el cliente'))
     if (session.status !== 'expired') throw new Error('Payment completed or still processing. Reservation retained.')
   }
-  return { processEvent, reconcile, cancel }
+  async function releaseReservation(orderId: string, reason?: string) {
+    return await atomic(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } })
+      if (!order) return { released: false, count: 0 }
+      return await release(tx, order, reason)
+    })
+  }
+  return { processEvent, reconcile, cancel, releaseReservation }
 }
 
 export function createWebhookHandler(getService: () => any, getStripe: () => any, getSecret: () => string | undefined) {
