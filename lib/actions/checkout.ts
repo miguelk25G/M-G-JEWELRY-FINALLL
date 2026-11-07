@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { getStripe } from "@/lib/stripe"
-import { calculateOrderTotals, isTexasAddress } from "@/lib/config/pricing"
+import { calculateOrderTotals, isTexasAddress, isUsAddress } from "@/lib/config/pricing"
 import Stripe from "stripe"
 import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
 
@@ -179,16 +179,13 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
     const customerName = `${firstName} ${lastName}`
 
-    // 2.5. Bloqueo en servidor para entregas fuera de Texas cuya regla fiscal aún no esté definida:
-    // Se ofrece cotización personalizada y se bloquea la creación de la sesión de pago en Stripe.
-    const isTx = isTexasAddress(state, country)
-    if (!isTx) {
-      const stateLabel = state ? state.trim().toUpperCase() : "destino fuera de Texas"
+    // 2.5. Validar que la entrega sea en un destino válido de EE. UU. para cálculo con Stripe Tax.
+    // Se elimina el bloqueo para direcciones fuera de Texas permitiendo pagos directos a cualquier estado.
+    if (!isUsAddress(country)) {
       return {
         success: false,
         requiresQuote: true,
-        state: stateLabel,
-        error: `Las entregas en ${stateLabel} requieren una cotización personalizada de impuestos y envío antes de pagar. Por favor solicita tu cotización con nuestro equipo de concierge.`,
+        error: "Los envíos fuera de EE. UU. requieren cotización personalizada. Contáctanos a través de nuestro concierge.",
       }
     }
 
@@ -355,7 +352,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       process.env.NEXTAUTH_URL ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
-    // Line items for products
+    // Line items for products with Stripe Tax classification (txcd_99999999 = General Merchandise / Jewelry)
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = verifiedItems.map((vi: any) => {
       let imageUrl: string | undefined = undefined
       try {
@@ -372,31 +369,40 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
             name: vi.product.name,
             images: imageUrl ? [imageUrl] : undefined,
             description: vi.size ? `Size: ${vi.size}` : undefined,
+            tax_code: "txcd_99999999",
           },
           unit_amount: Math.round(vi.unitPrice * 100),
+          tax_behavior: "exclusive",
         },
         quantity: vi.quantity,
       }
     })
 
-    // Add sales tax line item if applicable (8.25% Texas sales tax including shipping)
-    if (pricing.tax > 0) {
-      line_items.push({
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: "Texas Sales Tax (8.25% - Austin Establishment)",
-            description: "Texas state & local sales tax on taxable merchandise and shipping delivery",
+    // Configuración de envío estándar ($25.00 USD fijo) con código fiscal de transporte para Stripe Tax
+    const shippingOptions: Stripe.Checkout.SessionCreateParams.ShippingOption[] = [
+      {
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: {
+            amount: Math.round(pricing.shipping * 100),
+            currency: "usd",
           },
-          unit_amount: Math.round(pricing.tax * 100),
+          display_name: "Standard Insured Jewelry Shipping",
+          tax_behavior: "exclusive",
+          tax_code: "txcd_92010001",
+          delivery_estimate: {
+            minimum: { unit: "business_day", value: 3 },
+            maximum: { unit: "business_day", value: 5 },
+          },
         },
-        quantity: 1,
-      })
-    }
+      },
+    ]
 
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
 
     let session: Stripe.Checkout.Session
+    let sessionCreateParams: Stripe.Checkout.SessionCreateParams | null = null
+
     try {
       const stripeInstance = getStripe()
 
@@ -411,31 +417,16 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         discounts = [{ coupon: coupon.id }]
       }
 
-      session = await stripeInstance.checkout.sessions.create({
+      // Parámetros idénticos para la solicitud inicial y cualquier reintento con la misma clave de idempotencia
+      sessionCreateParams = {
         mode: "payment",
         customer_email: email,
         client_reference_id: order.id,
         line_items,
         discounts,
-        shipping_options: [
-          {
-            shipping_rate_data: {
-              type: "fixed_amount",
-              fixed_amount: {
-                amount: Math.round(pricing.shipping * 100),
-                currency: "usd",
-              },
-              display_name:
-                pricing.shipping === 0
-                  ? "Complimentary Fully Insured Delivery"
-                  : "Standard Insured Jewelry Shipping",
-              delivery_estimate: {
-                minimum: { unit: "business_day", value: 3 },
-                maximum: { unit: "business_day", value: 5 },
-              },
-            },
-          },
-        ],
+        automatic_tax: { enabled: true },
+        shipping_address_collection: { allowed_countries: ["US"] },
+        shipping_options: shippingOptions,
         success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
         payment_intent_data: { metadata: { orderId: order.id } },
@@ -443,8 +434,14 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           orderId: order.id,
           orderNumber: order.orderNumber,
           promoCode: validPromoCode,
+          taxMode: "stripe_tax",
         },
-      }, { idempotencyKey: `checkout-${order.id}` })
+      }
+
+      session = await stripeInstance.checkout.sessions.create(
+        sessionCreateParams,
+        { idempotencyKey: `checkout-${order.id}` }
+      )
     } catch (stripeError: any) {
       console.error("[Stripe Checkout Error] Failed to create checkout session:", {
         orderId: order.id,
@@ -480,44 +477,16 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
       // Ambiguous failure (e.g. 500, network timeout, connection reset, idempotency conflict):
       // The session may have been created in Stripe before the connection dropped.
-      // Re-query Stripe using the exact same idempotency key to recover the session if created.
+      // Re-query Stripe using the exact same idempotency key and exact same parameters to recover the session if created.
       let recoveredSession: Stripe.Checkout.Session | null = null
       try {
         const stripeInstance = getStripe()
-        recoveredSession = await stripeInstance.checkout.sessions.create({
-          mode: "payment",
-          customer_email: email,
-          client_reference_id: order.id,
-          line_items,
-          discounts,
-          shipping_options: [
-            {
-              shipping_rate_data: {
-                type: "fixed_amount",
-                fixed_amount: {
-                  amount: Math.round(pricing.shipping * 100),
-                  currency: "usd",
-                },
-                display_name:
-                  pricing.shipping === 0
-                    ? "Complimentary Fully Insured Delivery"
-                    : "Standard Insured Jewelry Shipping",
-                delivery_estimate: {
-                  minimum: { unit: "business_day", value: 3 },
-                  maximum: { unit: "business_day", value: 5 },
-                },
-              },
-            },
-          ],
-          success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
-          payment_intent_data: { metadata: { orderId: order.id } },
-          metadata: {
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            promoCode: validPromoCode,
-          },
-        }, { idempotencyKey: `checkout-${order.id}` })
+        if (sessionCreateParams) {
+          recoveredSession = await stripeInstance.checkout.sessions.create(
+            sessionCreateParams,
+            { idempotencyKey: `checkout-${order.id}` }
+          )
+        }
       } catch (recoveryErr: any) {
         console.error(`[Checkout Ambiguity] Recovery attempt via idempotency key failed for order ${order.id}:`, recoveryErr?.message || recoveryErr)
       }

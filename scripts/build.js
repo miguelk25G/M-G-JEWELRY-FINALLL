@@ -3,6 +3,12 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
+// Ensure node binary directory is in PATH for Turbopack loader subprocesses
+const nodeBinDir = path.dirname(process.execPath);
+if (!process.env.PATH?.includes(nodeBinDir)) {
+  process.env.PATH = `${nodeBinDir}${path.delimiter}${process.env.PATH || ''}`;
+}
+
 const isPreview = process.env.VERCEL_ENV === 'preview';
 const isProduction = process.env.VERCEL_ENV === 'production';
 

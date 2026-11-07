@@ -4,7 +4,7 @@
  */
 
 const assert = require('assert');
-const { calculateOrderTotals, isTexasAddress, CHECKOUT_PRICING_CONFIG } = require('../lib/config/pricing');
+const { calculateOrderTotals, isTexasAddress, isUsAddress, CHECKOUT_PRICING_CONFIG } = require('../lib/config/pricing');
 
 let passedTests = 0;
 let totalTests = 0;
@@ -33,166 +33,78 @@ async function asyncTest(name, fn) {
   }
 }
 
-console.log('\n--- 1. Testing Destination-Based Tax (Austin, TX 8.25% + Shipping & Out-of-State) ---');
+console.log('\n--- 1. Testing Stripe Tax Integration & $25 Fixed Shipping Across All US Orders ---');
 
-test('Benchmark test: $100 jewelry + $25 shipping + 8.25% TX tax = $135.31 total', () => {
+test('Stripe Tax checkout pricing: $100 jewelry + $25 shipping = $125 base before Stripe dynamic tax', () => {
   const totals = calculateOrderTotals({
     subtotal: 100,
     shippingAddress: { state: 'TX', country: 'US' },
   });
   assert.strictEqual(totals.discountedSubtotal, 100.0);
-  assert.strictEqual(totals.shipping, 25.0, 'Standard shipping must be $25.00');
-  assert.strictEqual(totals.taxableBase, 125.0, 'Taxable base in Texas must include shipping: 100 + 25 = $125.00');
-  assert.strictEqual(totals.taxRate, 0.0825, 'Texas test rate must be 8.25% (Austin establishment)');
-  assert.strictEqual(totals.tax, 10.31, 'Tax must be Math.round(125 * 0.0825 * 100) / 100 = $10.31');
-  assert.strictEqual(totals.total, 135.31, 'Total must be exactly $135.31');
-  assert.strictEqual(totals.isTexas, true);
-  assert.strictEqual(totals.requiresQuoteOption, false);
+  assert.strictEqual(totals.shipping, 25.0, 'Standard shipping must be $25.00 USD on all orders');
+  assert.strictEqual(totals.taxableBase, 125.0, 'Taxable base includes merchandise + shipping ($125.00)');
+  assert.strictEqual(totals.tax, 0.0, 'Manual tax removed to prevent duplicate charges; Stripe Tax calculates tax at checkout');
+  assert.strictEqual(totals.total, 125.0, 'Initial merchandise total is $125.00 (final tax added by Stripe)');
+  assert.strictEqual(totals.allowsDirectPayment, true, 'Direct payment must be enabled for US destinations');
 });
 
-test('Texas delivery: standard $25 shipping + 8.25% tax on (subtotal + shipping) for $499.99', () => {
+test('Standard shipping fee is strictly $25.00 USD on all orders ($499.99, $500.00, $500.01)', () => {
+  for (const amt of [499.99, 500.00, 500.01]) {
+    const res = calculateOrderTotals({
+      subtotal: amt,
+      shippingAddress: { state: 'CA', country: 'US' },
+    });
+    assert.strictEqual(res.shipping, 25.0, `Shipping for ${amt} must be $25.00`);
+    assert.strictEqual(res.allowsDirectPayment, true);
+  }
+});
+
+test('Discounted order applies $25 shipping and allows direct payment for US destinations', () => {
   const totals = calculateOrderTotals({
-    subtotal: 499.99,
-    shippingAddress: { state: 'TX', country: 'US' },
-  });
-  assert.strictEqual(totals.discountedSubtotal, 499.99);
-  assert.strictEqual(totals.shipping, 25.0);
-  assert.strictEqual(totals.taxableBase, 524.99); // 499.99 + 25
-  assert.strictEqual(totals.tax, 43.31); // 524.99 * 0.0825 = 43.311675 -> 43.31
-  assert.strictEqual(totals.total, 568.30); // 499.99 + 25 + 43.31 = 568.30
-  assert.strictEqual(totals.isTexas, true);
-});
-
-test('Texas delivery: standard $25 shipping + 8.25% tax on (subtotal + shipping) for $500.00', () => {
-  const totals = calculateOrderTotals({
-    subtotal: 500.00,
-    shippingAddress: { state: 'Texas', country: 'USA' },
-  });
-  assert.strictEqual(totals.discountedSubtotal, 500.00);
-  assert.strictEqual(totals.shipping, 25.0);
-  assert.strictEqual(totals.taxableBase, 525.00); // 500 + 25
-  assert.strictEqual(totals.tax, 43.31); // 525 * 0.0825 = 43.3125 -> 43.31
-  assert.strictEqual(totals.total, 568.31); // 500 + 25 + 43.31 = 568.31
-  assert.strictEqual(totals.isTexas, true);
-});
-
-test('Texas delivery: standard $25 shipping + 8.25% tax on (subtotal + shipping) for $500.01', () => {
-  const totals = calculateOrderTotals({
-    subtotal: 500.01,
-    shippingAddress: JSON.stringify({ state: 'tx', country: 'US' }),
-  });
-  assert.strictEqual(totals.discountedSubtotal, 500.01);
-  assert.strictEqual(totals.shipping, 25.0);
-  assert.strictEqual(totals.taxableBase, 525.01);
-  assert.strictEqual(totals.tax, 43.31); // 525.01 * 0.0825 = 43.313325 -> 43.31
-  assert.strictEqual(totals.total, 568.32); // 500.01 + 25 + 43.31 = 568.32
-  assert.strictEqual(totals.isTexas, true);
-});
-
-test('Texas delivery with discounts applies $25 shipping and 8.25% tax on discounted subtotal + shipping', () => {
-  // $550 with $50 discount -> discountedSubtotal = $500.00
-  const discountedAt500 = calculateOrderTotals({
     subtotal: 550,
     discountAmount: 50,
-    shippingAddress: { state: 'TX' },
+    shippingAddress: { state: 'NY', country: 'US' },
   });
-  assert.strictEqual(discountedAt500.discountedSubtotal, 500.0);
-  assert.strictEqual(discountedAt500.shipping, 25.0);
-  assert.strictEqual(discountedAt500.taxableBase, 525.0);
-  assert.strictEqual(discountedAt500.tax, 43.31);
-  assert.strictEqual(discountedAt500.total, 568.31);
-
-  // $550 with $100 discount -> discountedSubtotal = $450.00
-  const discountedAt450 = calculateOrderTotals({
-    subtotal: 550,
-    discountAmount: 100,
-    shippingAddress: { state: 'TX' },
-  });
-  assert.strictEqual(discountedAt450.discountedSubtotal, 450.0);
-  assert.strictEqual(discountedAt450.shipping, 25.0);
-  assert.strictEqual(discountedAt450.taxableBase, 475.0);
-  assert.strictEqual(discountedAt450.tax, 39.19); // 475 * 0.0825 = 39.1875 -> 39.19
-  assert.strictEqual(discountedAt450.total, 514.19); // 450 + 25 + 39.19 = 514.19
+  assert.strictEqual(totals.rawSubtotal, 550.0);
+  assert.strictEqual(totals.discountAmount, 50.0);
+  assert.strictEqual(totals.discountedSubtotal, 500.0);
+  assert.strictEqual(totals.shipping, 25.0);
+  assert.strictEqual(totals.total, 525.0);
+  assert.strictEqual(totals.allowsDirectPayment, true);
 });
 
-test('Out-of-state delivery (e.g. California): $0 Texas tax + $25 shipping + requires quote option + blocks direct payment', () => {
-  const totals = calculateOrderTotals({
-    subtotal: 100,
-    shippingAddress: { state: 'CA', country: 'US' },
-  });
-  assert.strictEqual(totals.discountedSubtotal, 100.0);
-  assert.strictEqual(totals.shipping, 25.0, 'Standard shipping is $25.00 for all orders');
-  assert.strictEqual(totals.taxableBase, 0, 'No Texas taxable base for out-of-state');
-  assert.strictEqual(totals.taxRate, 0.0, 'Out of state tax rate is 0.0');
-  assert.strictEqual(totals.tax, 0.0, 'Out of state orders have $0.00 Texas tax');
-  assert.strictEqual(totals.total, 125.0, 'Total is 100 + 25 + 0 = $125.00');
-  assert.strictEqual(totals.isTexas, false);
-  assert.strictEqual(totals.requiresQuoteOption, true);
-  assert.strictEqual(totals.allowsDirectPayment, false, 'Out-of-state orders must block direct payment');
-});
-
-test('Server-side payment session block: orders outside Texas strictly block payment session creation and require quote', () => {
+test('Direct payments allowed for all US destinations (no server block outside Texas)', () => {
   function simulateServerCheckoutValidation(shippingAddress) {
-    const isTx = isTexasAddress(shippingAddress.state, shippingAddress.country);
-    if (!isTx) {
-      const stateLabel = shippingAddress.state ? shippingAddress.state.trim().toUpperCase() : 'destino';
+    const isUs = isUsAddress(shippingAddress.country);
+    if (!isUs) {
       return {
         success: false,
         requiresQuote: true,
-        error: `Las entregas en ${stateLabel} requieren una cotización personalizada de impuestos y envío antes de pagar. Por favor solicita tu cotización con nuestro equipo de concierge.`,
+        error: 'Los envíos fuera de EE. UU. requieren cotización personalizada. Contáctanos a través de nuestro concierge.',
       };
     }
-    return { success: true };
+    return { success: true, allowsDirectPayment: true };
   }
 
-  // 1. Out-of-state address (California) is blocked on server
-  const caRes = simulateServerCheckoutValidation({ state: 'CA', country: 'US' });
-  assert.strictEqual(caRes.success, false, 'CA order must fail server validation');
-  assert.strictEqual(caRes.requiresQuote, true);
-  assert(caRes.error.includes('cotización personalizada'));
-  assert(caRes.error.includes('CA'));
+  // All US states (Texas, California, Florida, New York, etc.) succeed with direct payment
+  assert.strictEqual(simulateServerCheckoutValidation({ state: 'TX', country: 'US' }).success, true);
+  assert.strictEqual(simulateServerCheckoutValidation({ state: 'CA', country: 'US' }).success, true);
+  assert.strictEqual(simulateServerCheckoutValidation({ state: 'FL', country: 'USA' }).success, true);
+  assert.strictEqual(simulateServerCheckoutValidation({ state: 'NY', country: 'United States' }).success, true);
 
-  // 2. Out-of-state address (Florida, New York) are blocked on server
-  const flRes = simulateServerCheckoutValidation({ state: 'FL', country: 'US' });
-  assert.strictEqual(flRes.success, false);
-  assert.strictEqual(flRes.requiresQuote, true);
-
-  const nyRes = simulateServerCheckoutValidation({ state: 'NY', country: 'USA' });
-  assert.strictEqual(nyRes.success, false);
-  assert.strictEqual(nyRes.requiresQuote, true);
-
-  // 3. Texas deliveries (TX, Texas, TEJAS) are NOT blocked and proceed to Stripe Checkout
-  const txRes = simulateServerCheckoutValidation({ state: 'TX', country: 'US' });
-  assert.strictEqual(txRes.success, true);
-  assert.strictEqual(txRes.requiresQuote, undefined);
-
-  const texasFullRes = simulateServerCheckoutValidation({ state: 'Texas', country: 'US' });
-  assert.strictEqual(texasFullRes.success, true);
+  // International destinations require custom concierge quote
+  const intlRes = simulateServerCheckoutValidation({ state: 'ON', country: 'CA' });
+  assert.strictEqual(intlRes.success, false);
+  assert.strictEqual(intlRes.requiresQuote, true);
 });
 
-test('Out-of-state delivery with discount (e.g. Florida): $0 Texas tax + $25 shipping', () => {
-  const totals = calculateOrderTotals({
-    subtotal: 550,
-    discountAmount: 50,
-    shippingAddress: { state: 'FL', country: 'US' },
-  });
-  assert.strictEqual(totals.discountedSubtotal, 500.0);
-  assert.strictEqual(totals.shipping, 25.0);
-  assert.strictEqual(totals.tax, 0.0);
-  assert.strictEqual(totals.total, 525.0); // 500 + 25 + 0 = 525.00
-  assert.strictEqual(totals.isTexas, false);
-  assert.strictEqual(totals.requiresQuoteOption, true);
-});
-
-test('Checkout pricing configuration confirms Preview destination-based tax rules and $25 flat shipping', () => {
+test('Checkout pricing configuration confirms Stripe Tax status, Austin origin and $25 flat shipping', () => {
   assert.strictEqual(CHECKOUT_PRICING_CONFIG.STANDARD_SHIPPING_FEE, 25.0);
   assert.strictEqual(CHECKOUT_PRICING_CONFIG.ORIGIN_CITY, 'Austin');
   assert.strictEqual(CHECKOUT_PRICING_CONFIG.ORIGIN_STATE, 'TX');
-  assert.strictEqual(CHECKOUT_PRICING_CONFIG.TEXAS_SALES_TAX_RATE, 0.0825);
-  assert.strictEqual(CHECKOUT_PRICING_CONFIG.TEXAS_SHIPPING_TAXABLE, true);
-  assert.strictEqual(CHECKOUT_PRICING_CONFIG.OUT_OF_STATE_TAX_RATE, 0.0);
-  assert.strictEqual(CHECKOUT_PRICING_CONFIG.status, 'PREVIEW_DESTINATION_BASED_TAX');
-  assert(CHECKOUT_PRICING_CONFIG.validationNotice.includes('8.25% en Texas'));
+  assert.strictEqual(CHECKOUT_PRICING_CONFIG.status, 'STRIPE_AUTOMATIC_TAX');
+  assert.strictEqual(CHECKOUT_PRICING_CONFIG.STRIPE_MERCHANDISE_TAX_CODE, 'txcd_99999999');
+  assert.strictEqual(CHECKOUT_PRICING_CONFIG.STRIPE_SHIPPING_TAX_CODE, 'txcd_92010001');
 });
 
 console.log('\n--- 2. Testing Concurrency & Inventory Reservation on Last Unit ---');

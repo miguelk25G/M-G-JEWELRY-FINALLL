@@ -438,7 +438,7 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    Tax {selectedOrder.tax > 0 ? "(TX 8.25%)" : "(Out-of-State)"}:
+                    Tax {selectedOrder.tax > 0 ? "(Stripe Tax)" : ""}:
                   </span>
                   <span>{formatPrice(selectedOrder.tax || 0)}</span>
                 </div>
