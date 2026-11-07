@@ -49,6 +49,30 @@ test('Standard $25 shipping applies for orders <= $500', () => {
   assert.strictEqual(totals.total, 403.0, 'Total should be 350 + 25 + 28 = 403');
 });
 
+test('Threshold: $499.99 net subtotal pays standard $25 shipping and 8% tax', () => {
+  const totals = calculateOrderTotals({ subtotal: 499.99 });
+  assert.strictEqual(totals.discountedSubtotal, 499.99);
+  assert.strictEqual(totals.shipping, 25.0);
+  assert.strictEqual(totals.tax, 40.0);
+  assert.strictEqual(totals.total, 564.99);
+});
+
+test('Threshold: $500.00 net subtotal qualifies for free shipping ($0) and 8% tax', () => {
+  const totals = calculateOrderTotals({ subtotal: 500.00 });
+  assert.strictEqual(totals.discountedSubtotal, 500.00);
+  assert.strictEqual(totals.shipping, 0.0);
+  assert.strictEqual(totals.tax, 40.0);
+  assert.strictEqual(totals.total, 540.00);
+});
+
+test('Threshold: $500.01 net subtotal qualifies for free shipping ($0) and 8% tax', () => {
+  const totals = calculateOrderTotals({ subtotal: 500.01 });
+  assert.strictEqual(totals.discountedSubtotal, 500.01);
+  assert.strictEqual(totals.shipping, 0.0);
+  assert.strictEqual(totals.tax, 40.0);
+  assert.strictEqual(totals.total, 540.01);
+});
+
 test('Discount correctly reduces subtotal before tax and shipping thresholds', () => {
   const totals = calculateOrderTotals({ subtotal: 550, discountAmount: 100 });
   // discountedSubtotal is 450 (which drops below $500 threshold, so shipping is $25)
@@ -56,6 +80,18 @@ test('Discount correctly reduces subtotal before tax and shipping thresholds', (
   assert.strictEqual(totals.shipping, 25);
   assert.strictEqual(totals.tax, 36.0, 'Tax should be 8% of 450 = $36');
   assert.strictEqual(totals.total, 511.0, 'Total should be 450 + 25 + 36 = 511');
+});
+
+test('Threshold evaluation applies strictly AFTER discounts and BEFORE taxes', () => {
+  // $550 with $50 discount leaves $500.00 net -> free shipping
+  const reaching500 = calculateOrderTotals({ subtotal: 550, discountAmount: 50 });
+  assert.strictEqual(reaching500.discountedSubtotal, 500.00);
+  assert.strictEqual(reaching500.shipping, 0.0);
+
+  // $550 with $50.01 discount leaves $499.99 net -> pays $25 shipping
+  const droppingBelow500 = calculateOrderTotals({ subtotal: 550, discountAmount: 50.01 });
+  assert.strictEqual(droppingBelow500.discountedSubtotal, 499.99);
+  assert.strictEqual(droppingBelow500.shipping, 25.0);
 });
 
 test('Validation notice indicates pending commercial and fiscal validation', () => {

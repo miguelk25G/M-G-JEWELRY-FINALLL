@@ -138,71 +138,94 @@ export function assertIsolatedTestDatabase(url?: string): boolean {
   return true
 }
 
-// 1. Safety test: verifies that production URLs are strictly rejected and isolated test URLs accepted
+// 1. Safety test: verifies that production URLs are strictly rejected and isolated test URLs accepted,
+// ensuring each scenario runs with an explicit simulated environment and restores clean state.
 test('PostgreSQL safety guard: strictly rejects production databases and requires test isolation', () => {
-  // Must reject production database URLs
-  assert.throws(
-    () => assertIsolatedTestDatabase('postgres://user:pass@ep-prod-pooler.us-east-1.aws.neon.tech/mg-database-prod'),
-    /SAFETY CHECK FAILED/
-  )
-  assert.throws(
-    () => assertIsolatedTestDatabase('postgresql://admin:secret@live-db.internal:5432/jewelry_production'),
-    /SAFETY CHECK FAILED/
-  )
+  const originalVercelEnv = process.env.VERCEL_ENV
+  const originalTestPostgres = process.env.TEST_POSTGRES_URL
+  const originalTestDb = process.env.TEST_DATABASE_URL
+  const originalProdUrl = process.env.PROD_DATABASE_URL
 
-  // Must reject production database even when credentials (user/password) or URL parameters change
-  const prevProdUrl = process.env.PROD_DATABASE_URL
   try {
+    // -----------------------------------------------------------------------------------
+    // CASO 1: Simulación de entorno Local explícito (sin VERCEL_ENV)
+    // -----------------------------------------------------------------------------------
+    delete process.env.VERCEL_ENV
+
+    // 1a. En entorno local: rechazo estricto de URLs de producción conocidas
+    assert.throws(
+      () => assertIsolatedTestDatabase('postgres://user:pass@ep-prod-pooler.us-east-1.aws.neon.tech/mg-database-prod'),
+      /SAFETY CHECK FAILED/
+    )
+    assert.throws(
+      () => assertIsolatedTestDatabase('postgresql://admin:secret@live-db.internal:5432/jewelry_production'),
+      /SAFETY CHECK FAILED/
+    )
+
+    // 1b. En entorno local: rechazo estricto de la misma base aunque cambien credenciales o parámetros
     process.env.PROD_DATABASE_URL = 'postgres://prod_admin:super_secret@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production?sslmode=require'
-    // Different username, different password, and different query parameters targeting the exact same host & DB:
     const bypassAttemptUrl = 'postgresql://different_user:different_pass@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production?pool=true&connection_limit=5'
     assert.throws(
       () => assertIsolatedTestDatabase(bypassAttemptUrl),
       /SAFETY CHECK FAILED: Connection URL matches the production database host and database name \(even with different credentials or parameters\)! Operation rejected\./
     )
-  } finally {
-    process.env.PROD_DATABASE_URL = prevProdUrl
-  }
+    delete process.env.PROD_DATABASE_URL
 
-  // Must accept verified isolated test databases with "test" or localhost
-  assert.equal(
-    assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
-    true
-  )
-  assert.equal(
-    assertIsolatedTestDatabase('postgresql://postgres:postgres@localhost:5432/mg_integration_test'),
-    true
-  )
+    // 1c. En entorno local: aceptación de bases de prueba aisladas (localhost o keyword 'test')
+    assert.equal(
+      assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
+      true
+    )
+    assert.equal(
+      assertIsolatedTestDatabase('postgresql://postgres:postgres@localhost:5432/mg_integration_test'),
+      true
+    )
 
-  // Must accept provider URLs for mg-database-test in Preview when matching TEST_* even if URL string lacks "test"
-  const prevEnv = process.env.VERCEL_ENV
-  const prevTestPostgres = process.env.TEST_POSTGRES_URL
-  try {
+    // -----------------------------------------------------------------------------------
+    // CASO 2: Simulación de entorno Preview explícito (VERCEL_ENV === 'preview') con TEST_* ficticia
+    // -----------------------------------------------------------------------------------
     process.env.VERCEL_ENV = 'preview'
-    const providerNeonUrl = 'postgres://default:secret123@ep-restless-cloud-987654.us-east-1.aws.neon.tech/verceldb?sslmode=require'
-    process.env.TEST_POSTGRES_URL = providerNeonUrl
-    assert.equal(assertIsolatedTestDatabase(providerNeonUrl), true)
+    const dummyPreviewTestUrl = 'postgres://neon_user:neon_pass@ep-restless-cloud-987654.us-east-1.aws.neon.tech/verceldb?sslmode=require'
+    process.env.TEST_POSTGRES_URL = dummyPreviewTestUrl
 
-    // In Preview: reject if target does not match TEST_* (rejects fallbacks to DATABASE_URL/POSTGRES_URL)
+    // 2a. En Preview: acepta la URL del proveedor si coincide con la TEST_* ficticia (incluso sin palabra "test")
+    assert.equal(assertIsolatedTestDatabase(dummyPreviewTestUrl), true)
+
+    // 2b. En Preview: rechaza cualquier URL que NO coincida con TEST_* (prohíbe respaldos a DATABASE_URL / POSTGRES_URL)
     assert.throws(
       () => assertIsolatedTestDatabase('postgres://default:secret123@ep-unrelated-db.us-east-1.aws.neon.tech/verceldb'),
       /In Preview, target database must match a configured TEST_\* variable/
     )
-  } finally {
-    process.env.VERCEL_ENV = prevEnv
-    process.env.TEST_POSTGRES_URL = prevTestPostgres
-  }
 
-  // Must strictly reject execution in production environment
-  const prevEnvProd = process.env.VERCEL_ENV
-  try {
+    // 2c. En Preview: rechaza producción si coincide con PROD_* incluso con distintas credenciales
+    process.env.PROD_DATABASE_URL = 'postgres://prod_admin:super_secret@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production?sslmode=require'
+    assert.throws(
+      () => assertIsolatedTestDatabase('postgresql://other_user:other_pass@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production'),
+      /SAFETY CHECK FAILED: Connection URL matches the production database host and database name/
+    )
+    delete process.env.PROD_DATABASE_URL
+
+    // -----------------------------------------------------------------------------------
+    // CASO 3: Simulación de entorno Producción explícito (VERCEL_ENV === 'production')
+    // -----------------------------------------------------------------------------------
     process.env.VERCEL_ENV = 'production'
     assert.throws(
       () => assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
       /SAFETY CHECK FAILED: Cannot run test database operations in a production environment!/
     )
   } finally {
-    process.env.VERCEL_ENV = prevEnvProd
+    // Restaurar incondicionalmente el entorno original para las pruebas posteriores
+    if (originalVercelEnv !== undefined) process.env.VERCEL_ENV = originalVercelEnv
+    else delete process.env.VERCEL_ENV
+
+    if (originalTestPostgres !== undefined) process.env.TEST_POSTGRES_URL = originalTestPostgres
+    else delete process.env.TEST_POSTGRES_URL
+
+    if (originalTestDb !== undefined) process.env.TEST_DATABASE_URL = originalTestDb
+    else delete process.env.TEST_DATABASE_URL
+
+    if (originalProdUrl !== undefined) process.env.PROD_DATABASE_URL = originalProdUrl
+    else delete process.env.PROD_DATABASE_URL
   }
 })
 
