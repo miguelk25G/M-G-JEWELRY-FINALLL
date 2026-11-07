@@ -47,17 +47,20 @@ export function createPaymentService(db: any, stripe: any) {
     const paid = session.payment_status === 'paid' || (session.payment_status === 'no_payment_required' && session.amount_total === 0)
     if (paid) {
       if (['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus)) {
-        // Idempotently ensure transaction exists even if order was already confirmed
+        // Idempotently ensure transaction exists even if order was already confirmed or refunded
         const existingTx = await tx.transaction.findFirst({
           where: { orderId: order.id, provider: 'stripe', providerId: session.id },
         })
         if (!existingTx) {
+          const targetStatus = (order.paymentStatus === 'refunded' || order.paymentStatus === 'partially_refunded')
+            ? order.paymentStatus
+            : 'succeeded'
           await tx.transaction.create({
             data: {
               orderId: order.id,
               provider: 'stripe',
               providerId: session.id,
-              status: 'succeeded',
+              status: targetStatus,
               amount: order.total,
               currency: order.currency || 'USD',
               metadata: JSON.stringify({
@@ -369,8 +372,8 @@ export function createPaymentService(db: any, stripe: any) {
         order.stripeSessionId = session.id
       }
 
-      // Check if webhook arrived FIRST and already recorded the payment
-      const isPaidInOrder = ['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus) ||
+      // Check if webhook arrived FIRST and already recorded the payment or refund
+      const isPaidOrRefundedInOrder = ['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus) ||
         ['processing', 'completed', 'shipped', 'delivered'].includes(order.status)
 
       const isPaidInSession = session.payment_status === 'paid' ||
@@ -380,16 +383,22 @@ export function createPaymentService(db: any, stripe: any) {
         where: { orderId: order.id, provider: 'stripe', providerId: session.id },
       })
 
-      if (isPaidInOrder || isPaidInSession) {
-        // Webhook arrived first or session was already completed!
-        // Strictly conserve the payment record and its state: DO NOT downgrade to pending!
+      if (isPaidOrRefundedInOrder || isPaidInSession) {
+        // Webhook arrived first or session/order was already completed or refunded!
+        // Strictly conserve the payment/refund record and its state: DO NOT downgrade to pending, DO NOT overwrite refunds!
+        const targetStatus = (order.paymentStatus === 'refunded' || order.paymentStatus === 'partially_refunded')
+          ? order.paymentStatus
+          : (existingTx?.status === 'refunded' || existingTx?.status === 'partially_refunded')
+            ? existingTx.status
+            : 'succeeded'
+
         if (!existingTx) {
           await tx.transaction.create({
             data: {
               orderId: order.id,
               provider: 'stripe',
               providerId: session.id,
-              status: 'succeeded',
+              status: targetStatus,
               amount: order.total,
               currency: order.currency || 'USD',
               metadata: JSON.stringify({
@@ -401,21 +410,23 @@ export function createPaymentService(db: any, stripe: any) {
               }),
             },
           })
-        } else if (existingTx.status !== 'succeeded') {
+        } else if (existingTx.status === 'pending') {
+          // Only upgrade from pending to targetStatus; never overwrite refunded or partially_refunded!
           await tx.transaction.update({
             where: { id: existingTx.id },
-            data: { status: 'succeeded' },
+            data: { status: targetStatus },
           })
         }
 
-        // If order was not yet updated to paid in DB, apply session transition
-        if (order.paymentStatus !== 'paid' && isPaidInSession) {
+        // If order was not yet updated to paid in DB and session is paid (and not refunded), apply session transition
+        if (order.paymentStatus === 'pending' && isPaidInSession) {
           await applySession(tx, session, false)
         }
 
         return {
           success: true,
           alreadyPaid: true,
+          status: targetStatus,
           orderId: order.id,
           orderNumber: order.orderNumber,
         }

@@ -545,7 +545,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           return {
             success: false,
             status: recoveryResult.status || 'failed',
-            error: recoveryResult.error || "No se pudo completar el pago en la pasarela. No se ha realizado ningún cobro.",
+            error: recoveryResult.error || "No se pudo confirmar el estado del pago en la pasarela. El resultado del cobro está pendiente de verificación.",
             orderId: order.id,
           }
         }
@@ -561,7 +561,8 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
         return {
           success: false,
-          error: "No se pudo confirmar la comunicación con la pasarela de pagos. Tu reserva se conserva temporalmente mientras se concilia con Stripe.",
+          status: "unconfirmed",
+          error: "No se pudo confirmar la comunicación con la pasarela de pagos. El resultado del cobro es desconocido y está pendiente de verificación; tu reserva se conserva temporalmente mientras se concilia con Stripe.",
         }
       }
     }
@@ -699,7 +700,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       return {
         success: false,
         status: "unconfirmed",
-        error: "No se pudo confirmar la comunicación con la pasarela de pagos y no se realizó ningún cargo. Tu reserva se conserva temporalmente mientras se concilia con Stripe.",
+        error: "No se pudo confirmar la comunicación con la pasarela de pagos. El resultado del cobro es desconocido y está pendiente de verificación; tu reserva se conserva temporalmente mientras se concilia con Stripe.",
         orderId: order.id,
       }
     }

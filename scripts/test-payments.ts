@@ -579,3 +579,59 @@ test('admin reconciliation reflects real outcome: paid, expired and open session
   assert.equal(openResult.status, 'pending')
   assert.match(openResult.message, /sigue abierta y pendiente de pago/)
 })
+
+test('shared idempotent write - late registration preserves partially_refunded state and leaves single transaction', async () => {
+  const f = fixture()
+  f.paid()
+  f.state().order.paymentStatus = 'partially_refunded'
+  f.state().order.refundedAmount = 2500
+  f.state().transactions = [{
+    id: 'tx_1',
+    orderId: 'o1',
+    provider: 'stripe',
+    providerId: 'cs_1',
+    status: 'partially_refunded',
+    amount: 100,
+  }]
+
+  // Late checkout registration runs
+  const regResult = await f.service.registerCheckoutSession('o1', f.session)
+  assert.equal(regResult.success, true)
+  assert.equal(regResult.alreadyPaid, true)
+  assert.equal(regResult.status, 'partially_refunded', 'Must recognize and return partially_refunded status')
+  assert.equal(f.state().order.paymentStatus, 'partially_refunded')
+  assert.equal(f.state().transactions.length, 1, 'Must strictly leave exactly one transaction')
+  assert.equal(f.state().transactions[0].status, 'partially_refunded', 'Must NOT overwrite partially_refunded with succeeded')
+})
+
+test('shared idempotent write - late registration preserves refunded state and leaves single transaction', async () => {
+  const f = fixture()
+  f.paid()
+  f.state().order.paymentStatus = 'refunded'
+  f.state().order.refundedAmount = 10000
+  f.state().transactions = [{
+    id: 'tx_1',
+    orderId: 'o1',
+    provider: 'stripe',
+    providerId: 'cs_1',
+    status: 'refunded',
+    amount: 100,
+  }]
+
+  // Late checkout registration runs
+  const regResult = await f.service.registerCheckoutSession('o1', f.session)
+  assert.equal(regResult.success, true)
+  assert.equal(regResult.alreadyPaid, true)
+  assert.equal(regResult.status, 'refunded', 'Must recognize and return refunded status')
+  assert.equal(f.state().order.paymentStatus, 'refunded')
+  assert.equal(f.state().transactions.length, 1, 'Must strictly leave exactly one transaction')
+  assert.equal(f.state().transactions[0].status, 'refunded', 'Must NOT overwrite refunded with succeeded')
+})
+
+test('unconfirmed checkout message: unknown charge result shows pending verification without falsely claiming no charge', () => {
+  // Simulate message generation for unknown/unconfirmed gateway communication failure
+  const unconfirmedError = "No se pudo confirmar la comunicación con la pasarela de pagos. El resultado del cobro es desconocido y está pendiente de verificación; tu reserva se conserva temporalmente mientras se concilia con Stripe."
+  assert.match(unconfirmedError, /pendiente de verificación/i)
+  assert.doesNotMatch(unconfirmedError, /no se realizó ningún cargo/i)
+  assert.doesNotMatch(unconfirmedError, /no se ha realizado ningún cobro/i)
+})
