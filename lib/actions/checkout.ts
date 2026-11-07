@@ -401,48 +401,10 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
 
     let session: Stripe.Checkout.Session
+    let sessionCreateParams: Stripe.Checkout.SessionCreateParams | null = null
+
     try {
       const stripeInstance = getStripe()
-
-      // Vincular o crear cliente en Stripe con la dirección de entrega confirmada
-      let customerId: string | undefined = undefined
-      try {
-        if (stripeInstance.customers?.list && stripeInstance.customers?.create) {
-          const existingList = await stripeInstance.customers.list({ email, limit: 1 })
-          const customerData = {
-            name: customerName,
-            phone: phone || undefined,
-            shipping: {
-              name: customerName,
-              address: {
-                line1: address,
-                line2: address2 || undefined,
-                city,
-                state,
-                postal_code: zip,
-                country: "US",
-              },
-            },
-            address: {
-              line1: address,
-              line2: address2 || undefined,
-              city,
-              state,
-              postal_code: zip,
-              country: "US",
-            },
-          }
-          if (existingList.data.length > 0) {
-            const updatedCust = await stripeInstance.customers.update(existingList.data[0].id, customerData)
-            customerId = updatedCust.id
-          } else {
-            const newCust = await stripeInstance.customers.create({ email, ...customerData })
-            customerId = newCust.id
-          }
-        }
-      } catch (custErr) {
-        console.warn("[Stripe Customer] Fallback a customer_email:", custErr)
-      }
 
       // Apply coupon in Stripe if promo code applied
       if (pricing.discountAmount > 0) {
@@ -455,11 +417,10 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         discounts = [{ coupon: coupon.id }]
       }
 
-      session = await stripeInstance.checkout.sessions.create({
+      // Parámetros idénticos para la solicitud inicial y cualquier reintento con la misma clave de idempotencia
+      sessionCreateParams = {
         mode: "payment",
-        ...(customerId
-          ? { customer: customerId, customer_update: { shipping: "auto", address: "auto" } }
-          : { customer_email: email }),
+        customer_email: email,
         client_reference_id: order.id,
         line_items,
         discounts,
@@ -473,8 +434,14 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           orderId: order.id,
           orderNumber: order.orderNumber,
           promoCode: validPromoCode,
+          taxMode: "stripe_tax",
         },
-      }, { idempotencyKey: `checkout-${order.id}` })
+      }
+
+      session = await stripeInstance.checkout.sessions.create(
+        sessionCreateParams,
+        { idempotencyKey: `checkout-${order.id}` }
+      )
     } catch (stripeError: any) {
       console.error("[Stripe Checkout Error] Failed to create checkout session:", {
         orderId: order.id,
@@ -510,28 +477,16 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
       // Ambiguous failure (e.g. 500, network timeout, connection reset, idempotency conflict):
       // The session may have been created in Stripe before the connection dropped.
-      // Re-query Stripe using the exact same idempotency key to recover the session if created.
+      // Re-query Stripe using the exact same idempotency key and exact same parameters to recover the session if created.
       let recoveredSession: Stripe.Checkout.Session | null = null
       try {
         const stripeInstance = getStripe()
-        recoveredSession = await stripeInstance.checkout.sessions.create({
-          mode: "payment",
-          customer_email: email,
-          client_reference_id: order.id,
-          line_items,
-          discounts,
-          automatic_tax: { enabled: true },
-          shipping_address_collection: { allowed_countries: ["US"] },
-          shipping_options: shippingOptions,
-          success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
-          payment_intent_data: { metadata: { orderId: order.id } },
-          metadata: {
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            promoCode: validPromoCode,
-          },
-        }, { idempotencyKey: `checkout-${order.id}` })
+        if (sessionCreateParams) {
+          recoveredSession = await stripeInstance.checkout.sessions.create(
+            sessionCreateParams,
+            { idempotencyKey: `checkout-${order.id}` }
+          )
+        }
       } catch (recoveryErr: any) {
         console.error(`[Checkout Ambiguity] Recovery attempt via idempotency key failed for order ${order.id}:`, recoveryErr?.message || recoveryErr)
       }

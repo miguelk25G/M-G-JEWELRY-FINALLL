@@ -638,16 +638,16 @@ test('unconfirmed checkout message: unknown charge result shows pending verifica
 
 // --- Tests for Stripe Tax Dynamic Calculation, Webhook Reconciliation & Invariant Checks ---
 
-test('Stripe Tax reconciliation: updates order tax, total, address, and transaction amount to definitive Stripe values', async () => {
+test('Punto 1: Pago de Texas con impuesto sobre el envío: valida $25 contra amount_subtotal y concilia artículos e impuesto', async () => {
   const f = fixture()
-  // Order created with base amounts: $100 jewelry + $25 shipping = $125 total (tax: $0 before Stripe Tax)
+  // Pedido creado con importes base: $100 joyería + $25 envío = $125 total (tax inicial: 0 en BD)
   f.state().order.subtotal = 100.0
   f.state().order.discount = 0.0
   f.state().order.shipping = 25.0
   f.state().order.tax = 0.0
   f.state().order.total = 125.0
   f.state().order.shippingAddress = JSON.stringify({
-    street: '100 Initial St',
+    street: '100 Congress Ave',
     city: 'Austin',
     state: 'TX',
     zip: '78701',
@@ -662,13 +662,20 @@ test('Stripe Tax reconciliation: updates order tax, total, address, and transact
     amount: 125.0,
   }]
 
-  // Stripe calculates $10.31 sales tax (e.g. Austin, TX rate on jewelry + shipping)
-  // Definitive total in Stripe = 100 + 25 + 10.31 = 135.31 USD (13531 cents)
+  // En Texas, el envío es gravable (8.25% sobre $100 joyería = $8.25; 8.25% sobre $25 envío = $2.06; total tax = $10.31).
+  // Stripe Checkout devuelve:
+  // - amount_subtotal: 10000 ($100.00 mercancía)
+  // - shipping_cost.amount_subtotal: 2500 ($25.00 tarifa base sin impuesto)
+  // - shipping_cost.amount_total: 2706 ($27.06 con impuesto de envío)
+  // - total_details.amount_tax: 1031 ($10.31 total de impuestos)
+  // - amount_total: 13531 ($135.31 definitivo)
+  f.session.metadata = { orderId: 'o1', taxMode: 'stripe_tax' }
+  f.session.amount_subtotal = 10000
+  f.session.shipping_cost = { amount_subtotal: 2500, amount_total: 2706 }
+  f.session.total_details = { amount_tax: 1031, amount_discount: 0 }
   f.session.amount_total = 13531
-  f.session.total_details = { amount_tax: 1031 }
-  f.session.shipping_cost = { amount_total: 2500 }
   f.session.shipping_details = {
-    name: 'Jane Luxury',
+    name: 'Texas Buyer',
     address: {
       line1: '400 Congress Ave',
       line2: 'Suite 2100',
@@ -680,14 +687,14 @@ test('Stripe Tax reconciliation: updates order tax, total, address, and transact
   }
   f.paid()
 
-  // Process completed webhook
+  // El webhook procesa y concilia
   await f.service.processEvent(f.event('checkout.session.completed'))
 
-  // Assertions: order and transaction strictly reflect definitive Stripe Tax results
+  // Verificaciones exactas
   assert.equal(f.state().order.paymentStatus, 'paid')
   assert.equal(f.state().order.status, 'processing')
-  assert.equal(f.state().order.tax, 10.31, 'Definitive tax amount must be saved in DB order')
-  assert.equal(f.state().order.total, 135.31, 'Definitive total amount must be saved in DB order')
+  assert.equal(f.state().order.tax, 10.31, 'Debe guardar el impuesto definitivo de Stripe Tax en BD')
+  assert.equal(f.state().order.total, 135.31, 'Debe guardar el total definitivo de Stripe en BD')
 
   const parsedAddress = JSON.parse(f.state().order.shippingAddress)
   assert.equal(parsedAddress.street, '400 Congress Ave')
@@ -698,52 +705,131 @@ test('Stripe Tax reconciliation: updates order tax, total, address, and transact
 
   assert.equal(f.state().transactions.length, 1)
   assert.equal(f.state().transactions[0].status, 'succeeded')
-  assert.equal(f.state().transactions[0].amount, 135.31, 'Transaction amount must match definitive charged total')
+  assert.equal(f.state().transactions[0].amount, 135.31, 'La transacción debe registrar los $135.31 cobrados')
 })
 
-test('Stripe Tax reconciliation preserves strict validation: tampered amount or altered shipping fee is rejected', async () => {
+test('Punto 2: Pago fuera de Texas: valida $25 contra amount_subtotal, concilia $0 de impuesto y guarda total $125', async () => {
   const f = fixture()
+  // Pedido con destino California: $100 joyería + $25 envío = $125 total (tax inicial: 0)
   f.state().order.subtotal = 100.0
   f.state().order.discount = 0.0
   f.state().order.shipping = 25.0
   f.state().order.tax = 0.0
   f.state().order.total = 125.0
+  f.state().order.shippingAddress = JSON.stringify({
+    street: '9500 Wilshire Blvd',
+    city: 'Beverly Hills',
+    state: 'CA',
+    zip: '90212',
+    country: 'US',
+  })
+  f.state().transactions = [{
+    id: 'tx_init',
+    orderId: 'o1',
+    provider: 'stripe',
+    providerId: 'cs_1',
+    status: 'pending',
+    amount: 125.0,
+  }]
 
-  f.session.amount_total = 13000 // Discrepancy: does not match 12500 + tax!
-  f.session.total_details = { amount_tax: 1031 }
-  f.session.shipping_cost = { amount_total: 2500 }
-  f.paid()
-
-  // Webhook must fail assertion and rollback
-  await assert.rejects(f.service.processEvent(f.event('checkout.session.completed')))
-  assert.equal(f.state().order.paymentStatus, 'pending', 'Order must remain pending when amounts do not match')
-
-  // Shipping fee tampering test: shipping_cost altered from $25.00 to $10.00
-  const f2 = fixture()
-  f2.state().order.subtotal = 100.0
-  f2.state().order.shipping = 25.0
-  f2.session.amount_total = 12031
-  f2.session.total_details = { amount_tax: 1031 }
-  f2.session.shipping_cost = { amount_total: 1000 } // Tampered shipping!
-  f2.paid()
-
-  await assert.rejects(f2.service.processEvent(f2.event('checkout.session.completed')))
-  assert.equal(f2.state().order.paymentStatus, 'pending')
-})
-
-test('Stripe Tax backward compatibility: existing orders with manual tax continue to reconcile directly', async () => {
-  const f = fixture()
-  // Legacy order already had precomputed total $135.31 in DB
-  f.state().order.subtotal = 100.0
-  f.state().order.shipping = 25.0
-  f.state().order.tax = 10.31
-  f.state().order.total = 135.31
-
-  // Session has amount_total: 13531 directly matching order.total
-  f.session.amount_total = 13531
+  // Fuera de Texas sin nexo económico registrado: $0 impuesto
+  f.session.metadata = { orderId: 'o1', taxMode: 'stripe_tax' }
+  f.session.amount_subtotal = 10000
+  f.session.shipping_cost = { amount_subtotal: 2500, amount_total: 2500 }
+  f.session.total_details = { amount_tax: 0, amount_discount: 0 }
+  f.session.amount_total = 12500
+  f.session.shipping_details = {
+    name: 'California Client',
+    address: {
+      line1: '9500 Wilshire Blvd',
+      city: 'Beverly Hills',
+      state: 'CA',
+      postal_code: '90212',
+      country: 'US',
+    },
+  }
   f.paid()
 
   await f.service.processEvent(f.event('checkout.session.completed'))
+
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+  assert.equal(f.state().order.tax, 0.0, 'Impuesto fuera de Texas debe ser $0.00')
+  assert.equal(f.state().order.total, 125.0, 'Total debe ser $125.00')
+
+  const parsedAddress = JSON.parse(f.state().order.shippingAddress)
+  assert.equal(parsedAddress.city, 'Beverly Hills')
+  assert.equal(parsedAddress.state, 'CA')
+
+  assert.equal(f.state().transactions.length, 1)
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+  assert.equal(f.state().transactions[0].amount, 125.0)
+})
+
+test('Punto 3: Conciliación de pedido del flujo anterior: aplica validación antigua del total fijo y conserva su impuesto guardado', async () => {
+  const f = fixture()
+  // Pedido previo que usó el flujo de impuesto manual anterior:
+  // Tenía ya guardados tax = $10.31 y total = $135.31 en BD
+  f.state().order.subtotal = 100.0
+  f.state().order.discount = 0.0
+  f.state().order.shipping = 25.0
+  f.state().order.tax = 10.31
+  f.state().order.total = 135.31
+  f.state().transactions = [{
+    id: 'tx_init',
+    orderId: 'o1',
+    provider: 'stripe',
+    providerId: 'cs_1',
+    status: 'pending',
+    amount: 135.31,
+  }]
+
+  // Sesión de Stripe del flujo anterior (sin taxMode stripe_tax, sin automatic_tax en metadata)
+  f.session.metadata = { orderId: 'o1' }
+  delete f.session.amount_subtotal
+  delete f.session.shipping_cost
+  delete f.session.total_details
+  f.session.amount_total = 13531 // Coincide exactamente con Math.round(order.total * 100)
+  f.paid()
+
+  await f.service.processEvent(f.event('checkout.session.completed'))
+
   assert.equal(f.state().order.paymentStatus, 'paid')
   assert.equal(f.state().order.total, 135.31)
+  assert.equal(f.state().order.tax, 10.31, 'Debe CONSERVAR estrictamente el impuesto manual guardado ($10.31), no resetearlo a 0')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+  assert.equal(f.state().transactions[0].amount, 135.31)
+})
+
+test('Stripe Tax reconciliation rechaza discrepancias: monto base de envío manipulado o artículos no coincidentes', async () => {
+  const f = fixture()
+  f.state().order.subtotal = 100.0
+  f.state().order.shipping = 25.0
+  f.state().order.tax = 0.0
+  f.state().order.total = 125.0
+
+  // 1. Envío base alterado en Stripe (ej. $10 en vez de $25)
+  f.session.metadata = { orderId: 'o1', taxMode: 'stripe_tax' }
+  f.session.amount_subtotal = 10000
+  f.session.shipping_cost = { amount_subtotal: 1000, amount_total: 1083 } // Discrepancia: 1000 !== 2500
+  f.session.total_details = { amount_tax: 908, amount_discount: 0 }
+  f.session.amount_total = 11908
+  f.paid()
+
+  await assert.rejects(f.service.processEvent(f.event('checkout.session.completed')))
+  assert.equal(f.state().order.paymentStatus, 'pending', 'Debe rechazar sesión con costo de envío base alterado')
+
+  // 2. Artículos alterados en Stripe (ej. $80 en vez de $100)
+  const f2 = fixture()
+  f2.state().order.subtotal = 100.0
+  f2.state().order.shipping = 25.0
+  f2.session.metadata = { orderId: 'o1', taxMode: 'stripe_tax' }
+  f2.session.amount_subtotal = 8000 // Discrepancia: 8000 !== 10000
+  f2.session.shipping_cost = { amount_subtotal: 2500, amount_total: 2706 }
+  f2.session.total_details = { amount_tax: 866, amount_discount: 0 }
+  f2.session.amount_total = 11366
+  f2.paid()
+
+  await assert.rejects(f2.service.processEvent(f2.event('checkout.session.completed')))
+  assert.equal(f2.state().order.paymentStatus, 'pending', 'Debe rechazar sesión con subtotal de artículos alterado')
 })

@@ -9,29 +9,49 @@ export function validateSize(product: any, size?: string) {
   if (!sizes.length && size) throw new Error('This product has no selectable sizes.')
 }
 
+export function isStripeTaxSession(session: any): boolean {
+  return Boolean(
+    session?.metadata?.taxMode === 'stripe_tax' ||
+    session?.automatic_tax?.enabled === true ||
+    session?.automatic_tax?.status === 'complete' ||
+    (session?.total_details?.amount_tax !== undefined && session?.total_details?.amount_tax > 0 && session?.shipping_cost?.amount_subtotal !== undefined)
+  )
+}
+
 export function isSessionFinanciallyValid(order: any, session: any): boolean {
   if (!order || !session) return false
   const matchesCurrency = session.currency?.toUpperCase() === order.currency?.toUpperCase()
   if (!matchesCurrency) return false
 
-  // 1. Direct match (backward compatible con pedidos anteriores / impuesto manual)
-  if (session.amount_total === Math.round(order.total * 100)) {
-    return true
-  }
-
-  // 2. Stripe Tax match: base de mercancía y envío ($25 USD) + impuesto definitivo de Stripe Tax
-  const expectedBaseCents = Math.round(((order.subtotal || 0) - (order.discount || 0) + (order.shipping || 0)) * 100)
-  const stripeTaxCents = session.total_details?.amount_tax ?? 0
-
-  if (session.amount_total === expectedBaseCents + stripeTaxCents) {
-    if (session.shipping_cost?.amount_total !== undefined &&
-        session.shipping_cost.amount_total !== Math.round((order.shipping || 0) * 100)) {
+  if (isStripeTaxSession(session)) {
+    // 1. Conciliar artículos por separado si está presente en el desglose de Stripe
+    const expectedItemsCents = Math.round((order.subtotal || 0) * 100)
+    if (session.amount_subtotal !== undefined && session.amount_subtotal !== expectedItemsCents) {
       return false
     }
-    return true
+
+    // 2. Conciliar descuento por separado si está presente
+    const expectedDiscountCents = Math.round((order.discount || 0) * 100)
+    if (session.total_details?.amount_discount !== undefined &&
+        session.total_details.amount_discount !== expectedDiscountCents) {
+      return false
+    }
+
+    // 3. Validar los $25 de tarifa base de envío contra shipping_cost.amount_subtotal (no amount_total, que incluye impuestos)
+    const expectedShippingCents = Math.round((order.shipping || 0) * 100)
+    if (session.shipping_cost?.amount_subtotal !== undefined &&
+        session.shipping_cost.amount_subtotal !== expectedShippingCents) {
+      return false
+    }
+
+    // 4. Conciliar impuesto final y total definitivo
+    const expectedBaseCents = Math.round(((order.subtotal || 0) - (order.discount || 0) + (order.shipping || 0)) * 100)
+    const stripeTaxCents = session.total_details?.amount_tax ?? 0
+    return session.amount_total === expectedBaseCents + stripeTaxCents
   }
 
-  return false
+  // Validación antigua del total fijo exclusivamente para sesiones del flujo anterior
+  return session.amount_total === Math.round(order.total * 100)
 }
 
 export function assertSession(order: any, session: any) {
@@ -72,9 +92,14 @@ export function createPaymentService(db: any, stripe: any) {
     assertSession(order, session)
     const paid = session.payment_status === 'paid' || (session.payment_status === 'no_payment_required' && session.amount_total === 0)
     if (paid) {
-      // Importes e impuestos definitivos calculados por Stripe Tax
+      const isStripeTax = isStripeTaxSession(session)
       const finalTotalDollars = session.amount_total / 100
-      const finalTaxDollars = (session.total_details?.amount_tax ?? 0) / 100
+
+      // Para Stripe Tax, guarda el impuesto definitivo de Stripe.
+      // Para sesiones del flujo anterior, conserva su impuesto guardado.
+      const finalTaxDollars = isStripeTax
+        ? (session.total_details?.amount_tax ?? 0) / 100
+        : (order.tax ?? 0)
 
       // Dirección definitiva de entrega desde Stripe
       let finalShippingAddress = order.shippingAddress
