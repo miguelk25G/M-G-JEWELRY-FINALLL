@@ -45,6 +45,7 @@ export default async function OrdersPage() {
       discount: order.discount,
       refundedAmount: refundedDollars,
       netAmount,
+      shippingAddress: order.shippingAddress,
       notes: order.notes || "",
       items: order.items.reduce((sum: number, item: any) => sum + item.quantity, 0),
       itemsList: order.items.map((item: any) => ({

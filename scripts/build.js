@@ -31,6 +31,7 @@ if (isPreview) {
   run(process.execPath, [path.join(__dirname, 'validate-test-db.js')]);
   run(process.execPath, [withEnv, 'prisma', 'db', 'push']);
   run(process.execPath, ['--import', 'tsx', '--test', path.join(__dirname, 'test-payments.ts'), path.join(__dirname, 'test-payments-postgres.ts')]);
+  run(process.execPath, ['--import', 'tsx', path.join(__dirname, 'test-checkout-flows.js')]);
 } else if (isProduction) {
   // 3. In Production: strictly skip prisma db push to protect production database integrity
   console.log('[build] Vercel Production detected: prisma db push is intentionally SKIPPED to protect production database.');

@@ -386,6 +386,21 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                   <span className="text-muted-foreground text-xs block">Payment Provider</span>
                   <span className="uppercase text-xs font-mono">{selectedOrder.provider}</span>
                 </div>
+                {selectedOrder.shippingAddress && (
+                  <div className="col-span-2 pt-1 border-t border-border/50">
+                    <span className="text-muted-foreground text-xs block">Shipping Destination</span>
+                    <span className="font-mono text-xs">
+                      {(() => {
+                        try {
+                          const parsed = JSON.parse(selectedOrder.shippingAddress)
+                          return `${parsed.street || ''} ${parsed.apt || ''}, ${parsed.city || ''}, ${parsed.state || ''} ${parsed.zip || ''}, ${parsed.country || ''}`.trim()
+                        } catch {
+                          return selectedOrder.shippingAddress
+                        }
+                      })()}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -422,7 +437,9 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                   <span>{formatPrice(selectedOrder.shipping || 0)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax:</span>
+                  <span className="text-muted-foreground">
+                    Tax {selectedOrder.tax > 0 ? "(TX 8.25%)" : "(Out-of-State)"}:
+                  </span>
                   <span>{formatPrice(selectedOrder.tax || 0)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-sm border-t pt-1">

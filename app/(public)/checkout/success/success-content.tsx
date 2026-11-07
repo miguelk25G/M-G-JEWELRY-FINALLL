@@ -149,7 +149,11 @@ export function CheckoutSuccessContent({
               <span>{order.shipping === 0 ? (locale === 'es' ? "Gratis" : "Free") : formatPrice(order.shipping)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{locale === 'es' ? "Impuestos" : "Estimated Tax"}</span>
+              <span className="text-muted-foreground">
+                {order.tax > 0
+                  ? (locale === 'es' ? "Impuesto de ventas (TX 8.25%)" : "Sales Tax (TX 8.25%)")
+                  : (locale === 'es' ? "Impuesto de ventas" : "Sales Tax")}
+              </span>
               <span>{formatPrice(order.tax)}</span>
             </div>
             <Separator className="my-2" />

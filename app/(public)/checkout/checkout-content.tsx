@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ArrowLeft, Lock, ShieldCheck, ShoppingBag, Tag, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Lock, ShieldCheck, ShoppingBag, Tag, AlertCircle, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,7 @@ import {
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { BrandConfig } from '@/lib/config/brand'
 import {
   createStripeCheckoutSession,
   applyPromoCode,
@@ -37,6 +38,8 @@ export function CheckoutContent() {
   const [appliedPromo, setAppliedPromo] = useState<{ code: string; type: string; value: number } | null>(null)
   const [compatibilityIssues, setCompatibilityIssues] = useState<CartItemCompatibilityIssue[]>([])
   const [catalogMap, setCatalogMap] = useState<Record<string, CatalogItemDetails>>({})
+  const [deliveryState, setDeliveryState] = useState<string>("TX")
+  const [deliveryCountry, setDeliveryCountry] = useState<string>("US")
 
   useEffect(() => {
     let active = true
@@ -76,7 +79,36 @@ export function CheckoutContent() {
   const totals = calculateOrderTotals({
     subtotal: rawSubtotal,
     discountAmount,
+    shippingAddress: {
+      state: deliveryState,
+      country: deliveryCountry,
+    },
   })
+
+  const handleRequestQuote = () => {
+    const waNumber = BrandConfig.CONTACT.whatsappNumber.replace(/\D/g, "") || "15125760229"
+    const itemsText = items.map((i) => `• ${i.quantity}x ${i.name} ($${(i.price * i.quantity).toFixed(2)})`).join("\n")
+    const quoteMsg =
+      locale === 'es'
+        ? `✨ *Solicitud de Cotización Personalizada - M&G Jewelry*\n\n` +
+          `Hola, deseo solicitar una cotización formal de impuestos y envío para entrega fuera de Texas.\n\n` +
+          `*Destino:* ${deliveryState ? deliveryState.trim().toUpperCase() : 'Por definir'}, ${deliveryCountry}\n` +
+          `*Artículos:*\n${itemsText}\n\n` +
+          `*Subtotal de joyería:* $${totals.discountedSubtotal.toFixed(2)} USD\n` +
+          `*Envío estándar estimado:* $${totals.shipping.toFixed(2)} USD\n` +
+          `*Total provisional:* $${totals.total.toFixed(2)} USD\n\n` +
+          `Por favor confírmenme la cotización final y los pasos para concretar la compra.`
+        : `✨ *Custom Quote Request - M&G Jewelry*\n\n` +
+          `Hello, I would like to request a formal sales tax and shipping quote for out-of-state delivery.\n\n` +
+          `*Destination:* ${deliveryState ? deliveryState.trim().toUpperCase() : 'TBD'}, ${deliveryCountry}\n` +
+          `*Items:*\n${itemsText}\n\n` +
+          `*Jewelry Subtotal:* $${totals.discountedSubtotal.toFixed(2)} USD\n` +
+          `*Estimated Shipping:* $${totals.shipping.toFixed(2)} USD\n` +
+          `*Provisional Total:* $${totals.total.toFixed(2)} USD\n\n` +
+          `Please provide the final quote and guidance to complete my purchase.`
+
+    window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(quoteMsg)}`, "_blank")
+  }
 
   const handleApplyPromo = async () => {
     if (!promoInput) return
@@ -413,8 +445,10 @@ export function CheckoutContent() {
                     <Input
                       id="state"
                       name="state"
-                      placeholder="CA"
-                      className="mt-1.5 bg-secondary"
+                      placeholder="TX"
+                      value={deliveryState}
+                      onChange={(e) => setDeliveryState(e.target.value)}
+                      className="mt-1.5 bg-secondary uppercase"
                       required
                     />
                   </div>
@@ -423,14 +457,15 @@ export function CheckoutContent() {
                     <Input
                       id="zip"
                       name="zip"
-                      placeholder="90210"
+                      placeholder="78701"
                       className="mt-1.5 bg-secondary"
                       required
                     />
                   </div>
                   <div>
                     <Label htmlFor="country">{t('cartForm.country')}</Label>
-                    <Select defaultValue="US" name="country">
+                    <input type="hidden" name="country" value={deliveryCountry} />
+                    <Select value={deliveryCountry} onValueChange={(val) => setDeliveryCountry(val)}>
                       <SelectTrigger className="mt-1.5 bg-secondary">
                         <SelectValue placeholder="Select country" />
                       </SelectTrigger>
@@ -640,9 +675,24 @@ export function CheckoutContent() {
                       {totals.shipping === 0 ? t('cartForm.free') : formatPrice(totals.shipping)}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{t('cart.tax')}</span>
-                    <span className="text-foreground">{formatPrice(totals.tax)}</span>
+                  <div className="space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        {totals.isTexas
+                          ? (locale === 'es' ? "Impuesto sobre ventas (TX 8.25%)" : "Sales Tax (TX 8.25%)")
+                          : (locale === 'es' ? "Impuesto sobre ventas (Fuera de TX)" : "Sales Tax (Out-of-State)")}
+                      </span>
+                      <span className="text-foreground">{formatPrice(totals.tax)}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {totals.isTexas
+                        ? (locale === 'es'
+                            ? "Tasa de prueba de Austin, TX (8.25%) sobre joyería y envío estándar ($25.00)."
+                            : "Austin, TX test rate (8.25%) applied to jewelry subtotal and standard shipping ($25.00).")
+                        : (locale === 'es'
+                            ? "Sin impuesto de Texas. Obligación del estado de destino pendiente de confirmar."
+                            : "No Texas sales tax applied. Destination state tax obligation under review.")}
+                    </p>
                   </div>
                 </div>
 
@@ -654,6 +704,37 @@ export function CheckoutContent() {
                     {formatPrice(totals.total)}
                   </span>
                 </div>
+
+                {!totals.isTexas && (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-foreground space-y-2">
+                    <div className="flex items-start gap-2">
+                      <HelpCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-amber-700 dark:text-amber-300">
+                          {locale === 'es'
+                            ? `Entrega fuera de Texas (${deliveryState ? deliveryState.trim().toUpperCase() : 'Por definir'})`
+                            : `Out-of-State Delivery (${deliveryState ? deliveryState.trim().toUpperCase() : 'TBD'})`}
+                        </p>
+                        <p className="text-muted-foreground mt-0.5">
+                          {locale === 'es'
+                            ? "La obligación fiscal en el estado de destino está por definir. Puedes solicitar una cotización personalizada antes de pagar o proceder de forma segura."
+                            : "Destination state tax obligation is pending confirmation. You may request a custom quote before paying or proceed securely."}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs font-medium border-amber-500/40 hover:bg-amber-500/20"
+                      onClick={handleRequestQuote}
+                    >
+                      {locale === 'es'
+                        ? "Solicitar cotización personalizada antes de pagar"
+                        : "Request custom quote before payment"}
+                    </Button>
+                  </div>
+                )}
 
                 <Button
                   type="submit"

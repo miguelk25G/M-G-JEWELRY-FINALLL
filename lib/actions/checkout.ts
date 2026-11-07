@@ -279,6 +279,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       const pricing = calculateOrderTotals({
         subtotal: rawSubtotal,
         discountAmount,
+        shippingAddress: shippingAddressObj,
       })
 
       // Ensure customer User record exists
@@ -365,14 +366,14 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       }
     })
 
-    // Add sales tax line item if applicable (8% estimated)
+    // Add sales tax line item if applicable (8.25% Texas sales tax including shipping)
     if (pricing.tax > 0) {
       line_items.push({
         price_data: {
           currency: "usd",
           product_data: {
-            name: "Estimated Sales Tax (8%)",
-            description: "Standard state and local sales tax",
+            name: "Texas Sales Tax (8.25% - Austin Establishment)",
+            description: "Texas state & local sales tax on taxable merchandise and shipping delivery",
           },
           unit_amount: Math.round(pricing.tax * 100),
         },
@@ -915,7 +916,18 @@ export async function submitConciergeOrder(formData: FormData, cartItems: any[])
       }
     }
 
-    const totals = calculateOrderTotals({ subtotal, discountAmount })
+    const totals = calculateOrderTotals({
+      subtotal,
+      discountAmount,
+      shippingAddress: {
+        street: address,
+        apt: address2 || null,
+        city,
+        state,
+        zip,
+        country,
+      },
+    })
 
     let user = await db.user.findUnique({ where: { email } })
     if (!user) {
