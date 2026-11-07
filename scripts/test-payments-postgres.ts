@@ -9,17 +9,15 @@ import { createPaymentService } from '../lib/payments'
  * mg-database-test (o a una base de prueba aislada) y descarta de forma estricta la base de producción:
  *
  * 1. Entorno: Rechaza incondicionalmente la ejecución en un entorno de producción (VERCEL_ENV === 'production').
- * 2. Exclusión de producción: Comprueba explícitamente contra todas las variables conocidas de producción
- *    (PROD_DATABASE_URL, PRISMA_DATABASE_URL_PROD, PRODUCTION_DATABASE_URL, PROD_POSTGRES_URL) y descarta
- *    cualquier coincidencia por URL completa o por coincidencia de host + base de datos. En entornos fuera
- *    de Preview, descarta también las variables por defecto (DATABASE_URL, POSTGRES_URL, PRISMA_DATABASE_URL)
- *    que no correspondan a una variable TEST_*.
- * 3. Detección por palabras clave de producción: Rechaza si la URL contiene 'prod' o 'production'.
- * 4. Pertenencia a mg-database-test: En Vercel Preview, los proveedores (como Neon) pueden generar URLs
- *    cuyo subdominio o nombre de base de datos no incluya la palabra "test" (ej. host ep-xyz y base verceldb).
- *    Por tanto, la comprobación verifica fiablemente si la URL coincide con las variables configuradas
- *    para Preview (TEST_POSTGRES_URL, TEST_DATABASE_URL, TEST_PRISMA_DATABASE_URL, TEST_DATABASE_URL_POOLED,
- *    TEST_INTEGRATION_DATABASE_URL), o si apunta a localhost/127.0.0.1, o si contiene 'test'/'integration'/'preview'.
+ * 2. Variables TEST_*: En Preview, se vincula exclusivamente a las variables TEST_* configuradas para
+ *    mg-database-test, eliminando cualquier respaldo a DATABASE_URL o POSTGRES_URL por defecto.
+ * 3. Exclusión de producción: Comprueba explícitamente contra todas las variables conocidas de producción
+ *    (PROD_DATABASE_URL, PRISMA_DATABASE_URL_PROD, PRODUCTION_DATABASE_URL, PROD_POSTGRES_URL).
+ *    El rechazo por coincidencia de host y base de datos se ejecuta FUERA del bloque catch, garantizando
+ *    que se rechace la misma base aunque cambien las credenciales (usuario/contraseña) o los parámetros.
+ * 4. Detección por palabras clave de producción: Rechaza si la URL contiene 'prod' o 'production'.
+ * 5. Pertenencia a mg-database-test: En Preview, exige que la URL provenga de las variables TEST_*.
+ *    Fuera de Preview, admite además instancias en localhost o URLs con identificadores de prueba.
  */
 export function assertIsolatedTestDatabase(url?: string): boolean {
   if (!url) {
@@ -31,7 +29,8 @@ export function assertIsolatedTestDatabase(url?: string): boolean {
     throw new Error('SAFETY CHECK FAILED: Cannot run test database operations in a production environment!')
   }
 
-  // 2. Variables de prueba configuradas (que apuntan a mg-database-test)
+  // 2. Variables de prueba vinculadas exclusivamente a mg-database-test (TEST_*)
+  // Eliminados de forma estricta los respaldos a DATABASE_URL y POSTGRES_URL
   const testEnvUrls = [
     process.env.TEST_POSTGRES_URL,
     process.env.TEST_DATABASE_URL,
@@ -39,12 +38,6 @@ export function assertIsolatedTestDatabase(url?: string): boolean {
     process.env.TEST_DATABASE_URL_POOLED,
     process.env.TEST_INTEGRATION_DATABASE_URL,
   ].filter(Boolean) as string[]
-
-  if (process.env.VERCEL_ENV === 'preview') {
-    if (process.env.POSTGRES_URL) testEnvUrls.push(process.env.POSTGRES_URL)
-    if (process.env.DATABASE_URL) testEnvUrls.push(process.env.DATABASE_URL)
-    if (process.env.PRISMA_DATABASE_URL) testEnvUrls.push(process.env.PRISMA_DATABASE_URL)
-  }
 
   // 3. Variables de producción a excluir estrictamente
   const prodUrls = [
@@ -67,14 +60,23 @@ export function assertIsolatedTestDatabase(url?: string): boolean {
     if (url === prodUrl) {
       throw new Error('SAFETY CHECK FAILED: Connection URL matches the production database! Operation rejected.')
     }
+
+    let isMatchingProdDb = false
     try {
       const u = new URL(url)
       const p = new URL(prodUrl)
-      if (u.host === p.host && u.pathname === p.pathname) {
-        throw new Error('SAFETY CHECK FAILED: Connection URL matches the production database host and pathname! Operation rejected.')
+      const uPath = u.pathname.replace(/\/+$/, '')
+      const pPath = p.pathname.replace(/\/+$/, '')
+      if (u.host.toLowerCase() === p.host.toLowerCase() && uPath.toLowerCase() === pPath.toLowerCase()) {
+        isMatchingProdDb = true
       }
     } catch {
-      // ignore parsing error
+      // Ignorar errores sintácticos de URL
+    }
+
+    // El rechazo por coincidencia de base de producción se ejecuta fuera del catch:
+    if (isMatchingProdDb) {
+      throw new Error('SAFETY CHECK FAILED: Connection URL matches the production database host and database name (even with different credentials or parameters)! Operation rejected.')
     }
   }
 
@@ -85,13 +87,37 @@ export function assertIsolatedTestDatabase(url?: string): boolean {
     throw new Error('SAFETY CHECK FAILED: Target database URL contains production identifier! Operation rejected.')
   }
 
-  // 5. Verificar pertenencia a mg-database-test o entorno aislado de pruebas
+  // 5. En Preview: la URL debe pertenecer obligatoriamente a una variable TEST_* vinculada a mg-database-test
+  if (process.env.VERCEL_ENV === 'preview') {
+    const matchesTestResource = testEnvUrls.some((tUrl) => {
+      if (url === tUrl) return true
+      try {
+        const u = new URL(url)
+        const t = new URL(tUrl)
+        const uPath = u.pathname.replace(/\/+$/, '')
+        const tPath = t.pathname.replace(/\/+$/, '')
+        return u.host.toLowerCase() === t.host.toLowerCase() && uPath.toLowerCase() === tPath.toLowerCase()
+      } catch {
+        return false
+      }
+    })
+
+    if (!matchesTestResource) {
+      throw new Error('SAFETY CHECK FAILED: In Preview, target database must match a configured TEST_* variable bound to mg-database-test! Fallbacks to default DATABASE_URL/POSTGRES_URL are strictly prohibited.')
+    }
+
+    return true
+  }
+
+  // 6. Fuera de Preview: verificar pertenencia a TEST_*, localhost o palabras clave de prueba
   const matchesConfiguredTest = testEnvUrls.some((tUrl) => {
     if (url === tUrl) return true
     try {
       const u = new URL(url)
       const t = new URL(tUrl)
-      return u.host === t.host && u.pathname === t.pathname
+      const uPath = u.pathname.replace(/\/+$/, '')
+      const tPath = t.pathname.replace(/\/+$/, '')
+      return u.host.toLowerCase() === t.host.toLowerCase() && uPath.toLowerCase() === tPath.toLowerCase()
     } catch {
       return false
     }
@@ -124,6 +150,20 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
     /SAFETY CHECK FAILED/
   )
 
+  // Must reject production database even when credentials (user/password) or URL parameters change
+  const prevProdUrl = process.env.PROD_DATABASE_URL
+  try {
+    process.env.PROD_DATABASE_URL = 'postgres://prod_admin:super_secret@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production?sslmode=require'
+    // Different username, different password, and different query parameters targeting the exact same host & DB:
+    const bypassAttemptUrl = 'postgresql://different_user:different_pass@ep-prod-instance.us-east-1.aws.neon.tech/jewelry_production?pool=true&connection_limit=5'
+    assert.throws(
+      () => assertIsolatedTestDatabase(bypassAttemptUrl),
+      /SAFETY CHECK FAILED: Connection URL matches the production database host and database name \(even with different credentials or parameters\)! Operation rejected\./
+    )
+  } finally {
+    process.env.PROD_DATABASE_URL = prevProdUrl
+  }
+
   // Must accept verified isolated test databases with "test" or localhost
   assert.equal(
     assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
@@ -134,7 +174,7 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
     true
   )
 
-  // Must accept provider URLs for mg-database-test in Preview even when URL string lacks "test"
+  // Must accept provider URLs for mg-database-test in Preview when matching TEST_* even if URL string lacks "test"
   const prevEnv = process.env.VERCEL_ENV
   const prevTestPostgres = process.env.TEST_POSTGRES_URL
   try {
@@ -142,6 +182,12 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
     const providerNeonUrl = 'postgres://default:secret123@ep-restless-cloud-987654.us-east-1.aws.neon.tech/verceldb?sslmode=require'
     process.env.TEST_POSTGRES_URL = providerNeonUrl
     assert.equal(assertIsolatedTestDatabase(providerNeonUrl), true)
+
+    // In Preview: reject if target does not match TEST_* (rejects fallbacks to DATABASE_URL/POSTGRES_URL)
+    assert.throws(
+      () => assertIsolatedTestDatabase('postgres://default:secret123@ep-unrelated-db.us-east-1.aws.neon.tech/verceldb'),
+      /In Preview, target database must match a configured TEST_\* variable/
+    )
   } finally {
     process.env.VERCEL_ENV = prevEnv
     process.env.TEST_POSTGRES_URL = prevTestPostgres
@@ -161,21 +207,23 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
 })
 
 // 2. Integration test against a disposable PostgreSQL database with the current Prisma schema
+// Uses strictly TEST_* variables; fallbacks to DATABASE_URL or POSTGRES_URL are eliminated
 const url =
   process.env.TEST_INTEGRATION_DATABASE_URL ||
   (process.env.VERCEL_ENV === 'preview'
     ? (process.env.TEST_POSTGRES_URL ||
        process.env.TEST_DATABASE_URL ||
        process.env.TEST_PRISMA_DATABASE_URL ||
-       process.env.TEST_DATABASE_URL_POOLED ||
-       process.env.POSTGRES_URL ||
-       process.env.DATABASE_URL)
+       process.env.TEST_DATABASE_URL_POOLED)
     : undefined)
 
 test('PostgreSQL: concurrent expiration/cancellation releases exactly once', { skip: !url }, async () => {
   assertIsolatedTestDatabase(url!)
 
   const db = new PrismaClient({ datasourceUrl: url })
+  // Validate live connection to mg-database-test before writing fixtures
+  await db.$queryRaw`SELECT 1`
+
   const id = `integration-${randomUUID()}`
   try {
     await db.product.create({ data: { id, name: 'Integration fixture', slug: id, description: 'Disposable test', price: 100, metalType: 'gold', category: 'rings', images: '[]', inventoryQty: 0 } })

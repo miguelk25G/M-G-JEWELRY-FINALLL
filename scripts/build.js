@@ -25,9 +25,10 @@ console.log(`[build] Build process started. Environment: VERCEL_ENV=${process.en
 const withEnv = path.join(__dirname, 'with-env.js');
 run(process.execPath, [withEnv, 'prisma', 'generate']);
 
-// 2. In Preview: synchronize test database (mg-database-test) and run payment tests
+// 2. In Preview: validate connection to mg-database-test BEFORE any schema push or write tests
 if (isPreview) {
-  console.log('[build] Vercel Preview detected: synchronizing test database schema and running test suite.');
+  console.log('[build] Vercel Preview detected: validating mg-database-test connection before schema push or write tests.');
+  run(process.execPath, [path.join(__dirname, 'validate-test-db.js')]);
   run(process.execPath, [withEnv, 'prisma', 'db', 'push']);
   run(process.execPath, ['--import', 'tsx', '--test', path.join(__dirname, 'test-payments.ts'), path.join(__dirname, 'test-payments-postgres.ts')]);
 } else if (isProduction) {

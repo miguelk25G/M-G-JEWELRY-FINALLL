@@ -8,7 +8,17 @@ function resolveDatabaseEnv() {
   const isPreview = process.env.VERCEL_ENV === 'preview';
 
   if (isPreview) {
-    if (!process.env.TEST_PRISMA_DATABASE_URL || !process.env.TEST_POSTGRES_URL) throw new Error('Preview requires TEST database URLs');
+    const testUrl =
+      process.env.TEST_POSTGRES_URL ||
+      process.env.TEST_DATABASE_URL ||
+      process.env.TEST_PRISMA_DATABASE_URL ||
+      process.env.TEST_DATABASE_URL_POOLED ||
+      process.env.TEST_INTEGRATION_DATABASE_URL;
+
+    if (!testUrl) {
+      throw new Error('Preview requires TEST_* database URLs (TEST_POSTGRES_URL, TEST_DATABASE_URL, etc.) bound to mg-database-test. Default DATABASE_URL and POSTGRES_URL fallbacks are strictly prohibited.');
+    }
+
     const testPrismaUrl =
       process.env.TEST_PRISMA_DATABASE_URL ||
       process.env.TEST_POSTGRES_URL ||
@@ -25,17 +35,11 @@ function resolveDatabaseEnv() {
       process.env.TEST_DATABASE_URL_POOLED ||
       process.env.TEST_PRISMA_DATABASE_URL;
 
-    if (testPrismaUrl) {
-      process.env.PRISMA_DATABASE_URL = testPrismaUrl;
-    }
-    if (testDirectUrl) {
-      process.env.POSTGRES_URL = testDirectUrl;
-    }
-    if (testDbUrl) {
-      process.env.DATABASE_URL = testDbUrl;
-    }
+    process.env.PRISMA_DATABASE_URL = testPrismaUrl || testUrl;
+    process.env.POSTGRES_URL = testDirectUrl || testUrl;
+    process.env.DATABASE_URL = testDbUrl || testUrl;
 
-    console.log('[with-env] Vercel Preview detected: Routing Prisma to TEST database (mg-database-test).');
+    console.log('[with-env] Vercel Preview detected: Routing Prisma strictly to mg-database-test using TEST_* variables.');
   }
 }
 
