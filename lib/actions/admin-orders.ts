@@ -2,17 +2,21 @@
 
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { requireAdminSession } from "@/lib/actions/auth-helper"
+import { getStripe } from "@/lib/stripe"
+import { createAdminOrderService } from "@/lib/admin-orders"
 
-export async function updateOrderStatus(orderId: string, status: string) {
+export type AdminActionResult =
+  | { success: true; message?: string; status?: string; error?: undefined }
+  | { success: false; error: string; status?: string }
+
+// Server actions invoked by Next.js Admin interface
+export async function updateOrderStatus(orderId: string, status: string): Promise<AdminActionResult> {
   try {
-    await db.order.update({
-      where: { id: orderId },
-      data: { status }
-    })
-    
-    // Refresh the admin orders page so the table updates natively
+    await requireAdminSession()
+    const service = createAdminOrderService(db, getStripe())
+    await service.updateOrderStatus(orderId, status)
     revalidatePath("/admin/orders")
-    
     return { success: true }
   } catch (error: any) {
     console.error("Failed to update status:", error)
@@ -20,22 +24,32 @@ export async function updateOrderStatus(orderId: string, status: string) {
   }
 }
 
-export async function markOrderAsPaid(orderId: string, amount: number) {
+export async function markOrderAsPaid(orderId: string, amount: number): Promise<AdminActionResult> {
   try {
-    await db.transaction.create({
-      data: {
-        orderId,
-        provider: "manual_concierge",
-        providerId: `MANUAL-${Date.now()}`,
-        status: "succeeded",
-        amount,
-      }
-    })
-    
+    await requireAdminSession()
+    const service = createAdminOrderService(db, getStripe())
+    await service.markOrderAsPaid(orderId, amount)
     revalidatePath("/admin/orders")
     return { success: true }
   } catch (error: any) {
     console.error("Failed to mark as paid:", error)
+    return { success: false, error: String(error.message || error) }
+  }
+}
+
+export async function syncOrderPaymentWithStripe(orderId: string): Promise<AdminActionResult> {
+  try {
+    await requireAdminSession()
+    const service = createAdminOrderService(db, getStripe())
+    const res = await service.syncOrderPaymentWithStripe(orderId)
+    revalidatePath("/admin/orders")
+    return {
+      success: true,
+      message: res.message,
+      status: res.status,
+    }
+  } catch (error: any) {
+    console.error("Failed to sync Stripe payment:", error)
     return { success: false, error: String(error.message || error) }
   }
 }

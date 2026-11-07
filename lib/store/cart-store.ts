@@ -21,6 +21,7 @@ interface CartStore {
   addItem: (item: Omit<CartItem, 'id'>) => void
   removeItem: (id: string) => void
   updateQuantity: (id: string, quantity: number) => void
+  updateItemSize: (id: string, size?: string) => void
   clearCart: () => void
   openCart: () => void
   closeCart: () => void
@@ -80,6 +81,36 @@ export const useCartStore = create<CartStore>()(
             i.id === id ? { ...i, quantity } : i
           ),
         })
+      },
+
+      updateItemSize: (id, size) => {
+        const currentItems = get().items
+        const target = currentItems.find((i) => i.id === id)
+        if (!target) return
+        const cleanSize = size ? size.trim() : undefined
+
+        // If another line item for the same product already has the cleanSize, merge them
+        const existingSame = currentItems.find(
+          (i) => i.id !== id && i.productId === target.productId && i.size === cleanSize
+        )
+
+        if (existingSame) {
+          set({
+            items: currentItems
+              .filter((i) => i.id !== id)
+              .map((i) =>
+                i.id === existingSame.id
+                  ? { ...i, quantity: i.quantity + target.quantity }
+                  : i
+              ),
+          })
+        } else {
+          set({
+            items: currentItems.map((i) =>
+              i.id === id ? { ...i, size: cleanSize } : i
+            ),
+          })
+        }
       },
 
       clearCart: () => {

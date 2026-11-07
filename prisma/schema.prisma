@@ -96,6 +96,12 @@ model Order {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  stripeSessionId String? @unique
+  stripePaymentIntentId String? @unique
+  paymentStatus String @default("pending")
+  reservationStatus String @default("none")
+  refundedAmount Int @default(0)
+
   items         OrderItem[]
   transactions  Transaction[]
 }
@@ -251,4 +257,10 @@ model DiscountCode {
   expiresAt     DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model StripeEvent {
+ id String @id
+ type String
+ processedAt DateTime @default(now())
 }

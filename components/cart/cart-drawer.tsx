@@ -12,8 +12,8 @@ import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
 
 export function CartDrawer() {
-  const { t } = useTranslation()
-  const { items, isOpen, closeCart, removeItem, updateQuantity, subtotal } = useCartStore()
+  const { t, locale } = useTranslation()
+  const { items, isOpen, closeCart, removeItem, updateQuantity, updateItemSize, subtotal } = useCartStore()
   const total = subtotal()
 
   return (

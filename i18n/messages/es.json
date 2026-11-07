@@ -189,7 +189,9 @@
     "payment": "Pago",
     "review": "Revisar Orden",
     "placeOrder": "Realizar Pedido",
-    "processing": "Procesando..."
+    "processing": "Procesando...",
+    "paySecurely": "Pagar de forma segura",
+    "stripeNotice": "Pago seguro encriptado de 256 bits procesado por Stripe"
   },
   "search": {
     "title": "Buscar",
@@ -288,6 +290,32 @@
       "title": "Garantía",
       "subtitle": "Nuestro compromiso con la calidad"
     }
+  },
+  "cartForm": {
+    "orderSummary": "Resumen de la Orden",
+    "secureCheckout": "Pago seguro procesado por Stripe",
+    "completeRequest": "Completa tu Compra",
+    "requestDesc": "Ingresa tus datos de envío y pago para completar tu orden de forma segura.",
+    "email": "Correo Electrónico",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "phone": "Teléfono",
+    "street": "Dirección",
+    "apt": "Apartamento, suite, etc. (opcional)",
+    "city": "Ciudad",
+    "state": "Estado / Provincia",
+    "zip": "Código Postal",
+    "country": "País",
+    "securePayment": "Pago Seguro con Stripe",
+    "personalizedSetup": "Procesamiento Seguro",
+    "personalizedDesc": "Tu pago está protegido con encriptación TLS y procesado por Stripe.",
+    "discountCode": "Código de Descuento",
+    "applied": "Aplicado",
+    "apply": "Aplicar",
+    "remove": "Eliminar",
+    "discount": "Descuento",
+    "free": "Gratis",
+    "submit": "Pagar de forma segura"
   }
 }
 

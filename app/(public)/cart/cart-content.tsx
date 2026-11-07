@@ -8,10 +8,11 @@ import { Separator } from '@/components/ui/separator'
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { toast } from 'sonner'
 
 export function CartPageContent() {
-  const { t } = useTranslation()
-  const { items, removeItem, updateQuantity, subtotal } = useCartStore()
+  const { t, locale } = useTranslation()
+  const { items, removeItem, updateQuantity, updateItemSize, subtotal } = useCartStore()
   const total = subtotal()
 
   if (items.length === 0) {

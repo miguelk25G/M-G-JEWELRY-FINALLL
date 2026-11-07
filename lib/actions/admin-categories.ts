@@ -3,9 +3,11 @@
 import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { put } from "@vercel/blob"
+import { requireAdminSession } from "@/lib/actions/auth-helper"
 
 export async function createCategory(formData: FormData) {
   try {
+    await requireAdminSession()
     const name = formData.get("name") as string
     const nameEs = formData.get("nameEs") as string
     const slug = formData.get("slug") as string
@@ -49,6 +51,7 @@ export async function createCategory(formData: FormData) {
 
 export async function deleteCategory(id: string) {
   try {
+    await requireAdminSession()
     await db.collection.delete({
       where: { id }
     })
@@ -61,6 +64,7 @@ export async function deleteCategory(id: string) {
 
 export async function toggleCategoryStatus(id: string, isActive: boolean) {
   try {
+    await requireAdminSession()
     await db.collection.update({
       where: { id },
       data: { isActive }
@@ -74,6 +78,7 @@ export async function toggleCategoryStatus(id: string, isActive: boolean) {
 
 export async function updateCategory(id: string, formData: FormData) {
   try {
+    await requireAdminSession()
     const name = formData.get("name") as string
     const nameEs = formData.get("nameEs") as string
     const slug = formData.get("slug") as string

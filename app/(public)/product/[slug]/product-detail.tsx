@@ -65,11 +65,30 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   const addToCart = useCartStore((state) => state.addItem)
   const { toggleItem, isFavorite } = useFavoritesStore()
 
-  const images = JSON.parse(product.images) as string[]
-  const sizes = product.sizes ? (JSON.parse(product.sizes) as string[]) : null
+  const images = (() => {
+    try {
+      const parsed = JSON.parse(product.images)
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : ['/placeholder.svg']
+    } catch {
+      return ['/placeholder.svg']
+    }
+  })()
+
+  // Safely parse available sizes: handles null, undefined, empty array or invalid JSON
+  const availableSizes: string[] = (() => {
+    if (!product.sizes) return []
+    try {
+      const parsed = JSON.parse(product.sizes)
+      return Array.isArray(parsed) ? parsed.map((s) => String(s).trim()).filter(Boolean) : []
+    } catch {
+      return []
+    }
+  })()
+
+  const hasSizes = availableSizes.length > 0
 
   const [selectedImage, setSelectedImage] = useState(0)
-  const [selectedSize, setSelectedSize] = useState<string | null>(sizes?.[0] || null)
+  const [selectedSize, setSelectedSize] = useState<string | null>(null)
   const [quantity, setQuantity] = useState(1)
 
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
@@ -80,8 +99,12 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   const favorite = isFavorite(product.id)
 
   const handleAddToCart = () => {
-    if (sizes && !selectedSize) {
-      toast.error('Please select a size')
+    if (hasSizes && !selectedSize) {
+      toast.error(locale === 'es' ? 'Por favor selecciona una talla' : 'Please select a size')
+      return
+    }
+    if (hasSizes && selectedSize && !availableSizes.includes(selectedSize)) {
+      toast.error(locale === 'es' ? 'Por favor selecciona una talla disponible' : 'Please select an available size')
       return
     }
     addToCart({
@@ -90,7 +113,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       price: product.price,
       image: images[0],
       quantity,
-      size: selectedSize || undefined,
+      size: hasSizes ? (selectedSize || undefined) : undefined,
       metalType: product.metalType,
       karat: product.karat || undefined,
     })
@@ -215,13 +238,13 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             <Separator />
 
             {/* Size Selection */}
-            {sizes && (
+            {hasSizes && (
               <div>
                 <label className="mb-3 block text-sm font-medium text-foreground">
                   {t('product.size')}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {sizes.map((size) => (
+                  {availableSizes.map((size) => (
                     <button
                       key={size}
                       onClick={() => setSelectedSize(size)}
@@ -286,11 +309,11 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
               </Button>
             </div>
 
-            {/* Ask Concierge */}
+            {/* Ask White-Glove / Concierge */}
             <Button variant="secondary" className="w-full gap-2" asChild>
-              <Link href={`/concierge?product=${product.slug}`}>
+              <Link href={`/white-glove?product=${product.slug}`}>
                 <MessageCircle className="h-4 w-4" />
-                {t('product.askConcierge')}
+                {t('product.askWhite-Glove') || t('product.askConcierge')}
               </Link>
             </Button>
 
@@ -364,7 +387,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             </TabsContent>
             <TabsContent value="shipping" className="mt-6">
               <div className="space-y-4 text-muted-foreground">
-                <p>Free shipping on all orders over $500. Orders are processed within 1-2 business days.</p>
+                <p>{locale === 'es' ? 'Envío asegurado estándar de $25 USD en todos los pedidos. Los pedidos se procesan en 1-2 días hábiles.' : 'Standard insured shipping is $25 USD on all orders. Orders are processed within 1-2 business days.'}</p>
                 <p>All items are shipped fully insured via FedEx with signature required for delivery.</p>
                 <p>International shipping available to select countries.</p>
               </div>
