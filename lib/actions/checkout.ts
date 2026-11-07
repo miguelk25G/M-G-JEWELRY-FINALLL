@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { getStripe } from "@/lib/stripe"
-import { calculateOrderTotals, isTexasAddress } from "@/lib/config/pricing"
+import { calculateOrderTotals, isTexasAddress, isUsAddress } from "@/lib/config/pricing"
 import Stripe from "stripe"
 import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
 
@@ -179,16 +179,13 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     const fullAddress = `${address} ${address2 ? address2 + ' ' : ''}${city}, ${state} ${zip}, ${country}`
     const customerName = `${firstName} ${lastName}`
 
-    // 2.5. Bloqueo en servidor para entregas fuera de Texas cuya regla fiscal aún no esté definida:
-    // Se ofrece cotización personalizada y se bloquea la creación de la sesión de pago en Stripe.
-    const isTx = isTexasAddress(state, country)
-    if (!isTx) {
-      const stateLabel = state ? state.trim().toUpperCase() : "destino fuera de Texas"
+    // 2.5. Validar que la entrega sea en un destino válido de EE. UU. para cálculo con Stripe Tax.
+    // Se elimina el bloqueo para direcciones fuera de Texas permitiendo pagos directos a cualquier estado.
+    if (!isUsAddress(country)) {
       return {
         success: false,
         requiresQuote: true,
-        state: stateLabel,
-        error: `Las entregas en ${stateLabel} requieren una cotización personalizada de impuestos y envío antes de pagar. Por favor solicita tu cotización con nuestro equipo de concierge.`,
+        error: "Los envíos fuera de EE. UU. requieren cotización personalizada. Contáctanos a través de nuestro concierge.",
       }
     }
 
@@ -355,7 +352,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       process.env.NEXTAUTH_URL ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
 
-    // Line items for products
+    // Line items for products with Stripe Tax classification (txcd_99999999 = General Merchandise / Jewelry)
     const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = verifiedItems.map((vi: any) => {
       let imageUrl: string | undefined = undefined
       try {
@@ -372,33 +369,80 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
             name: vi.product.name,
             images: imageUrl ? [imageUrl] : undefined,
             description: vi.size ? `Size: ${vi.size}` : undefined,
+            tax_code: "txcd_99999999",
           },
           unit_amount: Math.round(vi.unitPrice * 100),
+          tax_behavior: "exclusive",
         },
         quantity: vi.quantity,
       }
     })
 
-    // Add sales tax line item if applicable (8.25% Texas sales tax including shipping)
-    if (pricing.tax > 0) {
-      line_items.push({
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: "Texas Sales Tax (8.25% - Austin Establishment)",
-            description: "Texas state & local sales tax on taxable merchandise and shipping delivery",
+    // Configuración de envío estándar ($25.00 USD fijo) con código fiscal de transporte para Stripe Tax
+    const shippingOptions: Stripe.Checkout.SessionCreateParams.ShippingOption[] = [
+      {
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: {
+            amount: Math.round(pricing.shipping * 100),
+            currency: "usd",
           },
-          unit_amount: Math.round(pricing.tax * 100),
+          display_name: "Standard Insured Jewelry Shipping",
+          tax_behavior: "exclusive",
+          tax_code: "txcd_92010001",
+          delivery_estimate: {
+            minimum: { unit: "business_day", value: 3 },
+            maximum: { unit: "business_day", value: 5 },
+          },
         },
-        quantity: 1,
-      })
-    }
+      },
+    ]
 
     let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined = undefined
 
     let session: Stripe.Checkout.Session
     try {
       const stripeInstance = getStripe()
+
+      // Vincular o crear cliente en Stripe con la dirección de entrega confirmada
+      let customerId: string | undefined = undefined
+      try {
+        if (stripeInstance.customers?.list && stripeInstance.customers?.create) {
+          const existingList = await stripeInstance.customers.list({ email, limit: 1 })
+          const customerData = {
+            name: customerName,
+            phone: phone || undefined,
+            shipping: {
+              name: customerName,
+              address: {
+                line1: address,
+                line2: address2 || undefined,
+                city,
+                state,
+                postal_code: zip,
+                country: "US",
+              },
+            },
+            address: {
+              line1: address,
+              line2: address2 || undefined,
+              city,
+              state,
+              postal_code: zip,
+              country: "US",
+            },
+          }
+          if (existingList.data.length > 0) {
+            const updatedCust = await stripeInstance.customers.update(existingList.data[0].id, customerData)
+            customerId = updatedCust.id
+          } else {
+            const newCust = await stripeInstance.customers.create({ email, ...customerData })
+            customerId = newCust.id
+          }
+        }
+      } catch (custErr) {
+        console.warn("[Stripe Customer] Fallback a customer_email:", custErr)
+      }
 
       // Apply coupon in Stripe if promo code applied
       if (pricing.discountAmount > 0) {
@@ -413,29 +457,15 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
       session = await stripeInstance.checkout.sessions.create({
         mode: "payment",
-        customer_email: email,
+        ...(customerId
+          ? { customer: customerId, customer_update: { shipping: "auto", address: "auto" } }
+          : { customer_email: email }),
         client_reference_id: order.id,
         line_items,
         discounts,
-        shipping_options: [
-          {
-            shipping_rate_data: {
-              type: "fixed_amount",
-              fixed_amount: {
-                amount: Math.round(pricing.shipping * 100),
-                currency: "usd",
-              },
-              display_name:
-                pricing.shipping === 0
-                  ? "Complimentary Fully Insured Delivery"
-                  : "Standard Insured Jewelry Shipping",
-              delivery_estimate: {
-                minimum: { unit: "business_day", value: 3 },
-                maximum: { unit: "business_day", value: 5 },
-              },
-            },
-          },
-        ],
+        automatic_tax: { enabled: true },
+        shipping_address_collection: { allowed_countries: ["US"] },
+        shipping_options: shippingOptions,
         success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
         payment_intent_data: { metadata: { orderId: order.id } },
@@ -490,25 +520,9 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           client_reference_id: order.id,
           line_items,
           discounts,
-          shipping_options: [
-            {
-              shipping_rate_data: {
-                type: "fixed_amount",
-                fixed_amount: {
-                  amount: Math.round(pricing.shipping * 100),
-                  currency: "usd",
-                },
-                display_name:
-                  pricing.shipping === 0
-                    ? "Complimentary Fully Insured Delivery"
-                    : "Standard Insured Jewelry Shipping",
-                delivery_estimate: {
-                  minimum: { unit: "business_day", value: 3 },
-                  maximum: { unit: "business_day", value: 5 },
-                },
-              },
-            },
-          ],
+          automatic_tax: { enabled: true },
+          shipping_address_collection: { allowed_countries: ["US"] },
+          shipping_options: shippingOptions,
           success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
           payment_intent_data: { metadata: { orderId: order.id } },

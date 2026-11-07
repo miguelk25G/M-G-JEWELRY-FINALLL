@@ -635,3 +635,115 @@ test('unconfirmed checkout message: unknown charge result shows pending verifica
   assert.doesNotMatch(unconfirmedError, /no se realizó ningún cargo/i)
   assert.doesNotMatch(unconfirmedError, /no se ha realizado ningún cobro/i)
 })
+
+// --- Tests for Stripe Tax Dynamic Calculation, Webhook Reconciliation & Invariant Checks ---
+
+test('Stripe Tax reconciliation: updates order tax, total, address, and transaction amount to definitive Stripe values', async () => {
+  const f = fixture()
+  // Order created with base amounts: $100 jewelry + $25 shipping = $125 total (tax: $0 before Stripe Tax)
+  f.state().order.subtotal = 100.0
+  f.state().order.discount = 0.0
+  f.state().order.shipping = 25.0
+  f.state().order.tax = 0.0
+  f.state().order.total = 125.0
+  f.state().order.shippingAddress = JSON.stringify({
+    street: '100 Initial St',
+    city: 'Austin',
+    state: 'TX',
+    zip: '78701',
+    country: 'US',
+  })
+  f.state().transactions = [{
+    id: 'tx_init',
+    orderId: 'o1',
+    provider: 'stripe',
+    providerId: 'cs_1',
+    status: 'pending',
+    amount: 125.0,
+  }]
+
+  // Stripe calculates $10.31 sales tax (e.g. Austin, TX rate on jewelry + shipping)
+  // Definitive total in Stripe = 100 + 25 + 10.31 = 135.31 USD (13531 cents)
+  f.session.amount_total = 13531
+  f.session.total_details = { amount_tax: 1031 }
+  f.session.shipping_cost = { amount_total: 2500 }
+  f.session.shipping_details = {
+    name: 'Jane Luxury',
+    address: {
+      line1: '400 Congress Ave',
+      line2: 'Suite 2100',
+      city: 'Austin',
+      state: 'TX',
+      postal_code: '78701',
+      country: 'US',
+    },
+  }
+  f.paid()
+
+  // Process completed webhook
+  await f.service.processEvent(f.event('checkout.session.completed'))
+
+  // Assertions: order and transaction strictly reflect definitive Stripe Tax results
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+  assert.equal(f.state().order.tax, 10.31, 'Definitive tax amount must be saved in DB order')
+  assert.equal(f.state().order.total, 135.31, 'Definitive total amount must be saved in DB order')
+
+  const parsedAddress = JSON.parse(f.state().order.shippingAddress)
+  assert.equal(parsedAddress.street, '400 Congress Ave')
+  assert.equal(parsedAddress.apt, 'Suite 2100')
+  assert.equal(parsedAddress.city, 'Austin')
+  assert.equal(parsedAddress.state, 'TX')
+  assert.equal(parsedAddress.zip, '78701')
+
+  assert.equal(f.state().transactions.length, 1)
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+  assert.equal(f.state().transactions[0].amount, 135.31, 'Transaction amount must match definitive charged total')
+})
+
+test('Stripe Tax reconciliation preserves strict validation: tampered amount or altered shipping fee is rejected', async () => {
+  const f = fixture()
+  f.state().order.subtotal = 100.0
+  f.state().order.discount = 0.0
+  f.state().order.shipping = 25.0
+  f.state().order.tax = 0.0
+  f.state().order.total = 125.0
+
+  f.session.amount_total = 13000 // Discrepancy: does not match 12500 + tax!
+  f.session.total_details = { amount_tax: 1031 }
+  f.session.shipping_cost = { amount_total: 2500 }
+  f.paid()
+
+  // Webhook must fail assertion and rollback
+  await assert.rejects(f.service.processEvent(f.event('checkout.session.completed')))
+  assert.equal(f.state().order.paymentStatus, 'pending', 'Order must remain pending when amounts do not match')
+
+  // Shipping fee tampering test: shipping_cost altered from $25.00 to $10.00
+  const f2 = fixture()
+  f2.state().order.subtotal = 100.0
+  f2.state().order.shipping = 25.0
+  f2.session.amount_total = 12031
+  f2.session.total_details = { amount_tax: 1031 }
+  f2.session.shipping_cost = { amount_total: 1000 } // Tampered shipping!
+  f2.paid()
+
+  await assert.rejects(f2.service.processEvent(f2.event('checkout.session.completed')))
+  assert.equal(f2.state().order.paymentStatus, 'pending')
+})
+
+test('Stripe Tax backward compatibility: existing orders with manual tax continue to reconcile directly', async () => {
+  const f = fixture()
+  // Legacy order already had precomputed total $135.31 in DB
+  f.state().order.subtotal = 100.0
+  f.state().order.shipping = 25.0
+  f.state().order.tax = 10.31
+  f.state().order.total = 135.31
+
+  // Session has amount_total: 13531 directly matching order.total
+  f.session.amount_total = 13531
+  f.paid()
+
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.total, 135.31)
+})

@@ -9,11 +9,37 @@ export function validateSize(product: any, size?: string) {
   if (!sizes.length && size) throw new Error('This product has no selectable sizes.')
 }
 
+export function isSessionFinanciallyValid(order: any, session: any): boolean {
+  if (!order || !session) return false
+  const matchesCurrency = session.currency?.toUpperCase() === order.currency?.toUpperCase()
+  if (!matchesCurrency) return false
+
+  // 1. Direct match (backward compatible con pedidos anteriores / impuesto manual)
+  if (session.amount_total === Math.round(order.total * 100)) {
+    return true
+  }
+
+  // 2. Stripe Tax match: base de mercancía y envío ($25 USD) + impuesto definitivo de Stripe Tax
+  const expectedBaseCents = Math.round(((order.subtotal || 0) - (order.discount || 0) + (order.shipping || 0)) * 100)
+  const stripeTaxCents = session.total_details?.amount_tax ?? 0
+
+  if (session.amount_total === expectedBaseCents + stripeTaxCents) {
+    if (session.shipping_cost?.amount_total !== undefined &&
+        session.shipping_cost.amount_total !== Math.round((order.shipping || 0) * 100)) {
+      return false
+    }
+    return true
+  }
+
+  return false
+}
+
 export function assertSession(order: any, session: any) {
-  if (!order || order.stripeSessionId !== session.id ||
-      session.client_reference_id !== order.id || session.metadata?.orderId !== order.id ||
-      session.amount_total !== Math.round(order.total * 100) ||
-      session.currency?.toUpperCase() !== order.currency.toUpperCase()) {
+  if (!order ||
+      (order.stripeSessionId && order.stripeSessionId !== session.id) ||
+      session.client_reference_id !== order.id ||
+      session.metadata?.orderId !== order.id ||
+      !isSessionFinanciallyValid(order, session)) {
     throw new Error('Checkout session does not match the stored order.')
   }
 }
@@ -46,6 +72,28 @@ export function createPaymentService(db: any, stripe: any) {
     assertSession(order, session)
     const paid = session.payment_status === 'paid' || (session.payment_status === 'no_payment_required' && session.amount_total === 0)
     if (paid) {
+      // Importes e impuestos definitivos calculados por Stripe Tax
+      const finalTotalDollars = session.amount_total / 100
+      const finalTaxDollars = (session.total_details?.amount_tax ?? 0) / 100
+
+      // Dirección definitiva de entrega desde Stripe
+      let finalShippingAddress = order.shippingAddress
+      const stripeShipping = session.shipping_details || session.customer_details
+      if (stripeShipping?.address) {
+        const addr = stripeShipping.address
+        let existingObj: any = {}
+        try { existingObj = JSON.parse(order.shippingAddress || '{}') } catch {}
+        finalShippingAddress = JSON.stringify({
+          street: addr.line1 || existingObj.street || '',
+          apt: addr.line2 || existingObj.apt || null,
+          city: addr.city || existingObj.city || '',
+          state: addr.state || existingObj.state || '',
+          zip: addr.postal_code || existingObj.zip || '',
+          country: addr.country || existingObj.country || 'US',
+          name: stripeShipping.name || existingObj.name || order.customerName,
+        })
+      }
+
       if (['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus)) {
         // Idempotently ensure transaction exists even if order was already confirmed or refunded
         const existingTx = await tx.transaction.findFirst({
@@ -61,7 +109,7 @@ export function createPaymentService(db: any, stripe: any) {
               provider: 'stripe',
               providerId: session.id,
               status: targetStatus,
-              amount: order.total,
+              amount: finalTotalDollars,
               currency: order.currency || 'USD',
               metadata: JSON.stringify({
                 sessionId: session.id,
@@ -82,14 +130,17 @@ export function createPaymentService(db: any, stripe: any) {
           paymentStatus: 'paid',
           reservationStatus: 'consumed',
           status: 'processing',
-          stripePaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+          stripePaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
+          total: finalTotalDollars,
+          tax: finalTaxDollars,
+          shippingAddress: finalShippingAddress,
         },
       })
 
       if (changed.count) {
         const txUpdated = await tx.transaction.updateMany({
           where: { orderId: order.id, provider: 'stripe', providerId: session.id },
-          data: { status: 'succeeded' },
+          data: { status: 'succeeded', amount: finalTotalDollars },
         })
         if (txUpdated.count === 0) {
           const existingTx = await tx.transaction.findFirst({
@@ -102,7 +153,7 @@ export function createPaymentService(db: any, stripe: any) {
                 provider: 'stripe',
                 providerId: session.id,
                 status: 'succeeded',
-                amount: order.total,
+                amount: finalTotalDollars,
                 currency: order.currency || 'USD',
                 metadata: JSON.stringify({
                   sessionId: session.id,
@@ -145,7 +196,7 @@ export function createPaymentService(db: any, stripe: any) {
             const orphanCandidate = await tx.order.findUnique({ where: { id: session.client_reference_id }, include: { items: true } })
             if (orphanCandidate && !orphanCandidate.stripeSessionId) {
               const matchesRef = orphanCandidate.id === session.client_reference_id && session.metadata?.orderId === orphanCandidate.id
-              const matchesFin = session.amount_total === Math.round(orphanCandidate.total * 100) && session.currency?.toUpperCase() === orphanCandidate.currency.toUpperCase()
+              const matchesFin = isSessionFinanciallyValid(orphanCandidate, session)
               const conflicting = await tx.order.findFirst({ where: { stripeSessionId: session.id, id: { not: orphanCandidate.id } } })
               if (matchesRef && matchesFin && !conflicting) {
                 await tx.order.update({
@@ -243,10 +294,9 @@ export function createPaymentService(db: any, stripe: any) {
         throw new Error(`Session reference mismatch: client_reference_id (${session.client_reference_id}) or metadata.orderId (${session.metadata?.orderId}) does not match order ${order.id}`)
       }
 
-      // 4. Validar importe y moneda
-      const matchesAmount = session.amount_total === Math.round(order.total * 100)
-      const matchesCurrency = session.currency?.toUpperCase() === order.currency.toUpperCase()
-      if (!matchesAmount || !matchesCurrency) {
+      // 4. Validar importe y moneda con soporte para Stripe Tax
+      const matchesFinancials = isSessionFinanciallyValid(order, session)
+      if (!matchesFinancials) {
         throw new Error(`Session financial mismatch: amount/currency (${session.amount_total} ${session.currency}) does not match order (${Math.round(order.total * 100)} ${order.currency})`)
       }
 
@@ -358,8 +408,7 @@ export function createPaymentService(db: any, stripe: any) {
       if (session.client_reference_id !== order.id || session.metadata?.orderId !== order.id) {
         throw new Error('Checkout session references do not match the stored order.')
       }
-      if (session.amount_total !== Math.round(order.total * 100) ||
-          session.currency?.toUpperCase() !== order.currency.toUpperCase()) {
+      if (!isSessionFinanciallyValid(order, session)) {
         throw new Error('Checkout session amount or currency does not match the stored order.')
       }
 
@@ -399,7 +448,7 @@ export function createPaymentService(db: any, stripe: any) {
               provider: 'stripe',
               providerId: session.id,
               status: targetStatus,
-              amount: order.total,
+              amount: session.amount_total ? session.amount_total / 100 : order.total,
               currency: order.currency || 'USD',
               metadata: JSON.stringify({
                 sessionId: session.id,
@@ -440,7 +489,7 @@ export function createPaymentService(db: any, stripe: any) {
             provider: 'stripe',
             providerId: session.id,
             status: 'pending',
-            amount: order.total,
+            amount: session.amount_total ? session.amount_total / 100 : order.total,
             currency: order.currency || 'USD',
             metadata: JSON.stringify({
               sessionId: session.id,

@@ -683,20 +683,16 @@ export function CheckoutContent() {
                   <div className="space-y-1">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
-                        {totals.isTexas
-                          ? (locale === 'es' ? "Impuesto sobre ventas (TX 8.25%)" : "Sales Tax (TX 8.25%)")
-                          : (locale === 'es' ? "Impuesto sobre ventas (Fuera de TX)" : "Sales Tax (Out-of-State)")}
+                        {locale === 'es' ? "Impuesto sobre ventas" : "Sales Tax"}
                       </span>
-                      <span className="text-foreground">{formatPrice(totals.tax)}</span>
+                      <span className="text-foreground text-xs">
+                        {locale === 'es' ? "Calculado en Checkout (Stripe Tax)" : "Calculated at checkout (Stripe Tax)"}
+                      </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      {totals.isTexas
-                        ? (locale === 'es'
-                            ? "Tasa de prueba de Austin, TX (8.25%) sobre joyería y envío estándar ($25.00)."
-                            : "Austin, TX test rate (8.25%) applied to jewelry subtotal and standard shipping ($25.00).")
-                        : (locale === 'es'
-                            ? "Sin impuesto de Texas. Obligación del estado de destino pendiente de confirmar."
-                            : "No Texas sales tax applied. Destination state tax obligation under review.")}
+                      {locale === 'es'
+                        ? "Calculado automáticamente por Stripe Tax según tu dirección exacta de entrega en EE. UU."
+                        : "Calculated automatically by Stripe Tax based on your exact US delivery destination."}
                     </p>
                   </div>
                 </div>
@@ -709,67 +705,45 @@ export function CheckoutContent() {
                     {formatPrice(totals.total)}
                   </span>
                 </div>
+                <p className="text-[11px] text-muted-foreground text-right mt-0.5">
+                  {locale === 'es' ? "+ impuestos aplicables en Stripe" : "+ applicable tax in Stripe"}
+                </p>
 
-                {!totals.isTexas && (
-                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-foreground space-y-2">
-                    <div className="flex items-start gap-2">
-                      <HelpCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-amber-700 dark:text-amber-300">
-                          {locale === 'es'
-                            ? `Entrega fuera de Texas (${deliveryState ? deliveryState.trim().toUpperCase() : 'Por definir'})`
-                            : `Out-of-State Delivery (${deliveryState ? deliveryState.trim().toUpperCase() : 'TBD'})`}
-                        </p>
-                        <p className="text-muted-foreground mt-0.5">
-                          {locale === 'es'
-                            ? "La obligación fiscal en el estado de destino está por definir. Puedes solicitar una cotización personalizada antes de pagar o proceder de forma segura."
-                            : "Destination state tax obligation is pending confirmation. You may request a custom quote before paying or proceed securely."}
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs font-medium border-amber-500/40 hover:bg-amber-500/20"
-                      onClick={handleRequestQuote}
-                    >
-                      {locale === 'es'
-                        ? "Solicitar cotización personalizada antes de pagar"
-                        : "Request custom quote before payment"}
-                    </Button>
-                  </div>
-                )}
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="mt-6 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium tracking-wide shadow-md"
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? (
+                    t('checkout.processing')
+                  ) : (
+                    <>
+                      <Lock className="h-4 w-4" />
+                      {payButtonText}
+                    </>
+                  )}
+                </Button>
 
-                {!totals.isTexas ? (
+                <div className="mt-4 pt-3 border-t border-border/50 text-center">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    {locale === 'es'
+                      ? "¿Deseas un pedido personalizado, grabado especial o alta joyería a medida?"
+                      : "Looking for bespoke designs, custom engravings, or high jewelry quotes?"}
+                  </p>
                   <Button
                     type="button"
-                    size="lg"
-                    className="mt-6 w-full gap-2 bg-amber-600 text-white hover:bg-amber-700 font-medium tracking-wide shadow-md"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs font-medium"
                     onClick={handleRequestQuote}
                   >
-                    <HelpCircle className="h-4 w-4" />
+                    <HelpCircle className="h-3.5 w-3.5 mr-1.5" />
                     {locale === 'es'
                       ? "Solicitar cotización personalizada"
                       : "Request custom quote"}
                   </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    size="lg"
-                    className="mt-6 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium tracking-wide shadow-md"
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? (
-                      t('checkout.processing')
-                    ) : (
-                      <>
-                        <Lock className="h-4 w-4" />
-                        {payButtonText}
-                      </>
-                    )}
-                  </Button>
-                )}
+                </div>
 
                 <p className="mt-3 text-center text-xs text-muted-foreground flex items-center justify-center gap-1.5">
                   <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
