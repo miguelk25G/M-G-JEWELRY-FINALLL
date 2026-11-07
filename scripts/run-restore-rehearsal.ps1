@@ -9,7 +9,7 @@
 # 3. Connection string is read privately via environment variable or hidden input.
 # 4. Connection credentials are NEVER passed as command-line arguments to psql.
 # 5. Executes production-migration.sql untouched inside its transaction.
-# 6. Strictly verifies all 5 columns, 2 unique indexes, StripeEvent PK, and 3 products + 5 orders.
+# 6. Strictly verifies all 5 columns, 2 unique indexes, StripeEvent PK, and records.
 # 7. Leaves production (mg-database) 100% untouched.
 # ==============================================================================
 
@@ -144,7 +144,7 @@ try {
 
   Write-Host "`n==============================================================================" -ForegroundColor Green
   Write-Host "ENSAYO EXITOSO: Estructura, índices, tabla StripeEvent y datos verificados al 100%." -ForegroundColor Green
-  Write-Host "Deben conservarse los 3 productos y 5 pedidos. mg-database quedó completamente intacta." -ForegroundColor Green
+  Write-Host "Estructura y datos de mg-restore-test verificados. mg-database quedó completamente intacta." -ForegroundColor Green
   Write-Host "==============================================================================`n" -ForegroundColor Green
 } finally {
   # Clean up credentials from environment

@@ -27,7 +27,7 @@ WHERE datname = current_database()
   AND (application_name ILIKE '%vercel%' OR application_name ILIKE '%next%');
 
 \echo '------------------------------------------------------------------------------'
-\echo '3. RESTORE BASELINE CHECK (Expected: 3 Products, 5 Orders)'
+\echo '3. RESTORE RECORD INSPECTION (Product and Order Counts)'
 \echo '------------------------------------------------------------------------------'
 SELECT 
   (SELECT COUNT(*)::int FROM "Product") AS product_count,
