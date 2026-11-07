@@ -46,13 +46,72 @@ export function createPaymentService(db: any, stripe: any) {
     assertSession(order, session)
     const paid = session.payment_status === 'paid' || (session.payment_status === 'no_payment_required' && session.amount_total === 0)
     if (paid) {
-      if (['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus)) return
+      if (['paid', 'refunded', 'partially_refunded'].includes(order.paymentStatus)) {
+        // Idempotently ensure transaction exists even if order was already confirmed
+        const existingTx = await tx.transaction.findFirst({
+          where: { orderId: order.id, provider: 'stripe', providerId: session.id },
+        })
+        if (!existingTx) {
+          await tx.transaction.create({
+            data: {
+              orderId: order.id,
+              provider: 'stripe',
+              providerId: session.id,
+              status: 'succeeded',
+              amount: order.total,
+              currency: order.currency || 'USD',
+              metadata: JSON.stringify({
+                sessionId: session.id,
+                orderNumber: order.orderNumber,
+                paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
+                recoveredAt: new Date().toISOString(),
+              }),
+            },
+          })
+        }
+        return
+      }
+
       if (order.reservationStatus !== 'reserved') throw new Error('Paid order has no active reservation; manual reconciliation required.')
       const changed = await tx.order.updateMany({
         where: { id: order.id, paymentStatus: 'pending', reservationStatus: 'reserved' },
-        data: { paymentStatus: 'paid', reservationStatus: 'consumed', status: 'processing', stripePaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id },
+        data: {
+          paymentStatus: 'paid',
+          reservationStatus: 'consumed',
+          status: 'processing',
+          stripePaymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+        },
       })
-      if (changed.count) await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', providerId: session.id }, data: { status: 'succeeded' } })
+
+      if (changed.count) {
+        const txUpdated = await tx.transaction.updateMany({
+          where: { orderId: order.id, provider: 'stripe', providerId: session.id },
+          data: { status: 'succeeded' },
+        })
+        if (txUpdated.count === 0) {
+          const existingTx = await tx.transaction.findFirst({
+            where: { orderId: order.id, provider: 'stripe', providerId: session.id },
+          })
+          if (!existingTx) {
+            await tx.transaction.create({
+              data: {
+                orderId: order.id,
+                provider: 'stripe',
+                providerId: session.id,
+                status: 'succeeded',
+                amount: order.total,
+                currency: order.currency || 'USD',
+                metadata: JSON.stringify({
+                  sessionId: session.id,
+                  orderNumber: order.orderNumber,
+                  paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
+                  recoveredAt: new Date().toISOString(),
+                }),
+              },
+            })
+          }
+        }
+      }
     } else if (releaseAllowed) {
       await release(tx, order, reason)
     }

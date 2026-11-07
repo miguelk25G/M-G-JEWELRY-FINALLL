@@ -513,20 +513,25 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         const paymentService = createPaymentService(db, stripeInstance)
         const recoveryResult = await paymentService.recoverOrphanSession(order.id, recoveredSession)
         if (recoveryResult.reconciled && recoveryResult.status === 'paid') {
-          // Si el pago ya se hizo, devolver resultado acorde con la confirmación
-          // y evitar redirigir a una sesión ya completada en Stripe
-          return {
-            success: true,
-            url: `${hostUrl}/checkout/success?session_id=${recoveredSession.id}`,
-            orderId: order.id,
-            orderNumber: order.orderNumber,
+          // Redirige a la página de éxito solo después de confirmar el pedido en la base de datos
+          const confirmedOrder = await db.order.findUnique({ where: { id: order.id } })
+          if (confirmedOrder && confirmedOrder.paymentStatus === 'paid') {
+            return {
+              success: true,
+              url: `${hostUrl}/checkout/success?session_id=${recoveredSession.id}`,
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+            }
           }
-        } else if (recoveryResult.status === 'open') {
+        }
+        if (recoveryResult.status === 'open') {
           session = recoveredSession
         } else {
+          // Si la conciliación falla, conserva la reserva y devuelve un estado de revisión
           return {
             success: false,
-            error: recoveryResult.error || "Tu pedido requiere verificación manual. No se realizó ningún cargo duplicado.",
+            status: 'review_required',
+            error: "Tu pago fue procesado por Stripe, pero la confirmación automática está pendiente de verificación. La reserva de tus artículos se conserva segura mientras nuestro equipo revisa el pedido.",
             orderId: order.id,
           }
         }
@@ -605,17 +610,45 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         (currentSession?.payment_status === "no_payment_required" && currentSession?.amount_total === 0)
 
       if (isPaid) {
-        // Customer paid before or during registration error. Apply centralized confirmation and NEVER release inventory!
+        // Customer paid in Stripe! Try to safely reconcile and confirm in database
+        let confirmedInDb = false
         try {
-          await paymentService.reconcile(session.id)
+          const recResult = await paymentService.recoverOrphanSession(order.id, session)
+          if (recResult.reconciled && recResult.status === "paid") {
+            const confirmedOrder = await db.order.findUnique({ where: { id: order.id } })
+            if (confirmedOrder && confirmedOrder.paymentStatus === "paid") {
+              confirmedInDb = true
+            }
+          }
         } catch (recErr: any) {
           console.error(`[Order Reconciliation Error] Failed to confirm paid session ${session.id}:`, recErr?.message || recErr)
         }
+
+        if (confirmedInDb) {
+          // Redirige a la página de éxito SOLO después de confirmar el pedido en la base de datos
+          return {
+            success: true,
+            url: `${hostUrl}/checkout/success?session_id=${session.id}`,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+          }
+        }
+
+        // Si la conciliación falla, CONSERVA LA RESERVA y DEVUELVE UN ESTADO DE REVISIÓN
+        // Evita estrictamente redirigir al cliente a una sesión ya completada en Stripe
+        await db.order.update({
+          where: { id: order.id },
+          data: {
+            stripeSessionId: session.id,
+            notes: (order.notes ? order.notes + ' | ' : '') + `Pago procesado en Stripe (${session.id}), pero la conciliación en BD falló. Reserva conservada pendiente de revisión manual.`,
+          },
+        }).catch((err: any) => console.error("Failed to annotate order review status:", err?.message || err))
+
         return {
-          success: true,
-          url: `${hostUrl}/checkout/success?session_id=${session.id}`,
+          success: false,
+          status: "review_required",
+          error: "Tu pago fue procesado por Stripe, pero la confirmación automática con nuestra base de datos requiere verificación. La reserva de tus joyas se mantiene asegurada y nuestro equipo revisará tu pedido a la brevedad.",
           orderId: order.id,
-          orderNumber: order.orderNumber,
         }
       }
 

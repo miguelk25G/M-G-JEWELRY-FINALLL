@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import Stripe from 'stripe'
 import { createPaymentService, createWebhookHandler, validateSize } from '../lib/payments'
+import { createAdminOrderService } from '../lib/admin-orders'
 
 // Contract tests: actual production service/HTTP handler, fake Stripe transport
 // and serialized in-memory Prisma adapter. NOT a PostgreSQL concurrency proof.
@@ -25,6 +26,10 @@ function fixture() {
     product: { update: async ({ data }: any) => { state.stock += data.inventoryQty.increment } },
     transaction: {
       create: async ({ data }: any) => { state.transactions.push(data) },
+      findFirst: async ({ where }: any) => {
+        const found = state.transactions.find((t: any) => match(t, where))
+        return found ? structuredClone(found) : null
+      },
       updateMany: async ({ where, data }: any) => {
         let count = 0
         for (const t of state.transactions) {
@@ -32,7 +37,7 @@ function fixture() {
         }
         return { count }
       },
-      findMany: async ({ where }: any) => state.transactions.filter((t: any) => match(t, where)),
+      findMany: async ({ where }: any) => state.transactions.filter((t: any) => match(t, where)).map((t: any) => structuredClone(t)),
     },
     stripeEvent: {
       findUnique: async ({ where }: any) => state.events[where.id],
@@ -346,39 +351,34 @@ test('orphan session recovery with reconciliation failure leaves order pending r
   assert.match(f.state().order.notes, /revisión manual/i)
 })
 
-async function executeDispatchRealLogic(db: any, orderId: string, targetStatus: string) {
-  const order = await db.order.findUnique({ where: { id: orderId } })
-  if (!order) throw new Error("Order not found.")
+test('orphan order without stripeSessionId and without transaction creates exactly one transaction on paid session; re-delivery leaves exactly one transaction', async () => {
+  const f = fixture()
+  // Order has no stripeSessionId and no initial transaction
+  f.state().order.stripeSessionId = null
+  f.state().transactions = []
+  assert.equal(f.state().order.stripeSessionId, null)
+  assert.equal(f.state().transactions.length, 0)
 
-  const fulfillmentStatuses = ["processing", "shipped", "completed", "delivered"]
-  if (fulfillmentStatuses.includes(targetStatus)) {
-    const allowedPaymentStatuses = ["paid"]
-    const updated = await db.order.updateMany({
-      where: {
-        id: orderId,
-        paymentStatus: { in: allowedPaymentStatuses },
-        status: { not: "cancelled" },
-      },
-      data: { status: targetStatus },
-    })
+  // Stripe session is paid
+  f.paid()
 
-    if (updated.count === 0) {
-      const currentOrder = await db.order.findUnique({ where: { id: orderId } })
-      if (currentOrder?.paymentStatus === "refunded") {
-        throw new Error("No se puede despachar: el pedido fue totalmente reembolsado.")
-      }
-      if (currentOrder?.paymentStatus === "partially_refunded") {
-        throw new Error("No se puede despachar automáticamente: el pedido tiene un reembolso parcial y requiere revisión administrativa.")
-      }
-      if (currentOrder?.status === "cancelled") {
-        throw new Error("No se puede despachar: el pedido está cancelado.")
-      }
-      throw new Error("No se puede actualizar el despacho: el pago debe estar confirmado ('paid') antes de despachar.")
-    }
-    return { success: true }
-  }
-  return { success: true }
-}
+  // 1. First event delivery / recovery
+  const result = await f.service.recoverOrphanSession('o1', f.session)
+  assert.equal(result.success, true)
+  assert.equal(result.reconciled, true)
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+  assert.equal(f.state().transactions.length, 1, 'Transaction must be created atomically and idempotently')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+  assert.equal(f.state().transactions[0].providerId, 'cs_1')
+
+  // 2. Re-deliver the event
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().transactions.length, 1, 'Re-delivering the event must leave exactly one transaction')
+  assert.equal(f.state().transactions[0].status, 'succeeded')
+})
+
+// --- Tests using createAdminOrderService (executing the exact admin production code) ---
 
 test('real dispatch action demonstrates that a refund registered before update blocks dispatch', async () => {
   const f = fixture()
@@ -387,8 +387,10 @@ test('real dispatch action demonstrates that a refund registered before update b
   assert.equal(f.state().order.paymentStatus, 'paid')
   assert.equal(f.state().order.status, 'processing')
 
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
   // Dispatch succeeds while paid
-  const okResult = await executeDispatchRealLogic(f.db, 'o1', 'shipped')
+  const okResult = await adminService.updateOrderStatus('o1', 'shipped')
   assert.equal(okResult.success, true)
   assert.equal(f.state().order.status, 'shipped')
 
@@ -400,7 +402,7 @@ test('real dispatch action demonstrates that a refund registered before update b
 
   // Attempt to dispatch refunded order -> must throw error and block dispatch
   await assert.rejects(
-    () => executeDispatchRealLogic(f.db, 'o1', 'delivered'),
+    () => adminService.updateOrderStatus('o1', 'delivered'),
     /No se puede despachar: el pedido fue totalmente reembolsado/
   )
   assert.notEqual(f.state().order.status, 'delivered')
@@ -416,69 +418,15 @@ test('real dispatch action demonstrates that a partial refund blocks automated d
   await f.service.processEvent(f.event('charge.refunded'))
   assert.equal(f.state().order.paymentStatus, 'partially_refunded')
 
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
   // Attempt to dispatch partially refunded order -> must throw error requiring admin review
   await assert.rejects(
-    () => executeDispatchRealLogic(f.db, 'o1', 'shipped'),
+    () => adminService.updateOrderStatus('o1', 'shipped'),
     /No se puede despachar automáticamente: el pedido tiene un reembolso parcial/
   )
   assert.notEqual(f.state().order.status, 'shipped')
 })
-
-async function executeMarkAsPaidRealLogic(db: any, orderId: string, amount: number) {
-  const order = await db.order.findUnique({
-    where: { id: orderId },
-    include: { transactions: true },
-  })
-  if (!order) throw new Error("Order not found.")
-
-  if (order.stripeSessionId) throw new Error("Use Stripe reconciliation for this order.")
-
-  const hasStripePendingReservation =
-    order.reservationStatus === "reserved" &&
-    (
-      (order.notes && order.notes.toLowerCase().includes("stripe")) ||
-      order.transactions?.some((t: any) => t.provider === "stripe")
-    )
-
-  if (hasStripePendingReservation) {
-    throw new Error(
-      "Este pedido tiene una reserva de Stripe pendiente de conciliación. Debe conciliarse con Stripe o liberarse antes de aplicar un pago manual."
-    )
-  }
-
-  if (order.status === "cancelled" || order.paymentStatus === "refunded") {
-    throw new Error("No se puede registrar un pago manual en un pedido cancelado o reembolsado.")
-  }
-
-  await db.$transaction(async (tx: any) => {
-    await tx.transaction.create({
-      data: {
-        orderId,
-        provider: "manual_admin",
-        providerId: `MANUAL-${Date.now()}`,
-        status: "succeeded",
-        amount,
-        currency: order.currency || "USD",
-      },
-    })
-
-    const nextStatus =
-      order.status === "pending" || order.status === "pending_concierge"
-        ? "processing"
-        : order.status
-
-    await tx.order.update({
-      where: { id: orderId },
-      data: {
-        paymentStatus: "paid",
-        reservationStatus: order.reservationStatus === "reserved" ? "consumed" : order.reservationStatus,
-        status: nextStatus,
-      },
-    })
-  }, { isolationLevel: 'Serializable' })
-
-  return { success: true }
-}
 
 test('manual and White-Glove order: markOrderAsPaid sets paymentStatus paid and status processing, enabling subsequent dispatch', async () => {
   const f = fixture()
@@ -490,14 +438,16 @@ test('manual and White-Glove order: markOrderAsPaid sets paymentStatus paid and 
   f.state().order.notes = 'Concierge White-Glove assistance requested'
   f.state().transactions = []
 
-  // Admin registers manual payment
-  const paidResult = await executeMarkAsPaidRealLogic(f.db, 'o1', 100)
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
+  // Admin registers manual payment using actual admin service
+  const paidResult = await adminService.markOrderAsPaid('o1', 100)
   assert.equal(paidResult.success, true)
   assert.equal(f.state().order.paymentStatus, 'paid', 'paymentStatus must be paid')
   assert.equal(f.state().order.status, 'processing')
 
   // Now dispatch succeeds cleanly without regression!
-  const dispatchResult = await executeDispatchRealLogic(f.db, 'o1', 'shipped')
+  const dispatchResult = await adminService.updateOrderStatus('o1', 'shipped')
   assert.equal(dispatchResult.success, true)
   assert.equal(f.state().order.status, 'shipped')
 })
@@ -512,9 +462,37 @@ test('manual order payment rejection: order with pending Stripe reservation is e
   f.state().order.notes = 'Stripe Checkout pending | Promo: MGVIP'
   f.state().transactions = [{ orderId: 'o1', provider: 'stripe', status: 'pending' }]
 
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
   await assert.rejects(
-    () => executeMarkAsPaidRealLogic(f.db, 'o1', 100),
+    () => adminService.markOrderAsPaid('o1', 100),
     /Este pedido tiene una reserva de Stripe pendiente de conciliación/
   )
   assert.equal(f.state().order.paymentStatus, 'pending')
+})
+
+test('two concurrent markOrderAsPaid requests: atomic conditional check ensures only one succeeds and prevents duplicate payments', async () => {
+  const f = fixture()
+  f.state().order.stripeSessionId = null
+  f.state().order.status = 'pending_concierge'
+  f.state().order.paymentStatus = 'pending'
+  f.state().order.reservationStatus = 'none'
+  f.state().order.notes = 'White-glove concierge custom order'
+  f.state().transactions = []
+
+  const adminService = createAdminOrderService(f.db, f.stripe)
+
+  // Two concurrent calls
+  const [res1, res2] = await Promise.allSettled([
+    adminService.markOrderAsPaid('o1', 100),
+    adminService.markOrderAsPaid('o1', 100),
+  ])
+
+  const fulfilled = [res1, res2].filter(r => r.status === 'fulfilled')
+  const rejected = [res1, res2].filter(r => r.status === 'rejected')
+
+  assert.equal(fulfilled.length, 1, 'Exactly one request must succeed')
+  assert.equal(rejected.length, 1, 'Concurrent request must be rejected')
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().transactions.filter((t: any) => t.provider === 'manual_admin').length, 1, 'Exactly one payment transaction must be created')
 })
