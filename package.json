@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "node scripts/with-env.js prisma generate && node scripts/with-env.js prisma db push && pnpm test:payments && next build",
+    "build": "node scripts/build.js",
     "db:push": "node scripts/with-env.js prisma db push",
     "db:generate": "node scripts/with-env.js prisma generate",
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "test:payments": "node --import tsx --test scripts/test-payments.ts scripts/test-payments-postgres.ts"
+    "test:payments": "node --import tsx --test scripts/test-payments.ts scripts/test-payments-postgres.ts",
+    "db:migrate": "node scripts/with-env.js prisma db execute --file prisma/production-migration.sql --schema prisma/schema.prisma"
   },
   "dependencies": {
     "@auth/core": "latest",

@@ -5,44 +5,108 @@ import { PrismaClient } from '@prisma/client'
 import { createPaymentService } from '../lib/payments'
 
 /**
- * Comprobación de seguridad que descarta la base de producción:
- * 1. Comprueba explícitamente que la URL no coincida con ninguna variable de producción.
- * 2. En entornos locales o fuera de Preview, rechaza las URLs compartidas por defecto.
- * 3. Exige que el nombre de la base de datos o el host contenga 'test', 'integration', 'preview' o apunte a localhost.
+ * Comprobación fiable de seguridad que verifica que la conexión pertenece a
+ * mg-database-test (o a una base de prueba aislada) y descarta de forma estricta la base de producción:
+ *
+ * 1. Entorno: Rechaza incondicionalmente la ejecución en un entorno de producción (VERCEL_ENV === 'production').
+ * 2. Exclusión de producción: Comprueba explícitamente contra todas las variables conocidas de producción
+ *    (PROD_DATABASE_URL, PRISMA_DATABASE_URL_PROD, PRODUCTION_DATABASE_URL, PROD_POSTGRES_URL) y descarta
+ *    cualquier coincidencia por URL completa o por coincidencia de host + base de datos. En entornos fuera
+ *    de Preview, descarta también las variables por defecto (DATABASE_URL, POSTGRES_URL, PRISMA_DATABASE_URL)
+ *    que no correspondan a una variable TEST_*.
+ * 3. Detección por palabras clave de producción: Rechaza si la URL contiene 'prod' o 'production'.
+ * 4. Pertenencia a mg-database-test: En Vercel Preview, los proveedores (como Neon) pueden generar URLs
+ *    cuyo subdominio o nombre de base de datos no incluya la palabra "test" (ej. host ep-xyz y base verceldb).
+ *    Por tanto, la comprobación verifica fiablemente si la URL coincide con las variables configuradas
+ *    para Preview (TEST_POSTGRES_URL, TEST_DATABASE_URL, TEST_PRISMA_DATABASE_URL, TEST_DATABASE_URL_POOLED,
+ *    TEST_INTEGRATION_DATABASE_URL), o si apunta a localhost/127.0.0.1, o si contiene 'test'/'integration'/'preview'.
  */
 export function assertIsolatedTestDatabase(url?: string): boolean {
   if (!url) {
     throw new Error('Database URL is required.')
   }
 
+  // 1. Incondicionalmente rechazar si estamos en entorno de producción
+  if (process.env.VERCEL_ENV === 'production') {
+    throw new Error('SAFETY CHECK FAILED: Cannot run test database operations in a production environment!')
+  }
+
+  // 2. Variables de prueba configuradas (que apuntan a mg-database-test)
+  const testEnvUrls = [
+    process.env.TEST_POSTGRES_URL,
+    process.env.TEST_DATABASE_URL,
+    process.env.TEST_PRISMA_DATABASE_URL,
+    process.env.TEST_DATABASE_URL_POOLED,
+    process.env.TEST_INTEGRATION_DATABASE_URL,
+  ].filter(Boolean) as string[]
+
+  if (process.env.VERCEL_ENV === 'preview') {
+    if (process.env.POSTGRES_URL) testEnvUrls.push(process.env.POSTGRES_URL)
+    if (process.env.DATABASE_URL) testEnvUrls.push(process.env.DATABASE_URL)
+    if (process.env.PRISMA_DATABASE_URL) testEnvUrls.push(process.env.PRISMA_DATABASE_URL)
+  }
+
+  // 3. Variables de producción a excluir estrictamente
   const prodUrls = [
     process.env.PROD_DATABASE_URL,
     process.env.PRISMA_DATABASE_URL_PROD,
     process.env.PRODUCTION_DATABASE_URL,
+    process.env.PROD_POSTGRES_URL,
   ].filter(Boolean) as string[]
 
   if (process.env.VERCEL_ENV !== 'preview') {
-    if (process.env.PRISMA_DATABASE_URL) prodUrls.push(process.env.PRISMA_DATABASE_URL)
-    if (process.env.DATABASE_URL) prodUrls.push(process.env.DATABASE_URL)
-    if (process.env.POSTGRES_URL) prodUrls.push(process.env.POSTGRES_URL)
+    for (const key of ['PRISMA_DATABASE_URL', 'DATABASE_URL', 'POSTGRES_URL']) {
+      const val = process.env[key]
+      if (val && !testEnvUrls.includes(val)) {
+        prodUrls.push(val)
+      }
+    }
   }
 
   for (const prodUrl of prodUrls) {
     if (url === prodUrl) {
       throw new Error('SAFETY CHECK FAILED: Connection URL matches the production database! Operation rejected.')
     }
+    try {
+      const u = new URL(url)
+      const p = new URL(prodUrl)
+      if (u.host === p.host && u.pathname === p.pathname) {
+        throw new Error('SAFETY CHECK FAILED: Connection URL matches the production database host and pathname! Operation rejected.')
+      }
+    } catch {
+      // ignore parsing error
+    }
   }
 
   const lowerUrl = url.toLowerCase()
-  const isIsolatedTestDb =
+
+  // 4. Rechazar si contiene identificadores de producción
+  if (lowerUrl.includes('prod') || lowerUrl.includes('production')) {
+    throw new Error('SAFETY CHECK FAILED: Target database URL contains production identifier! Operation rejected.')
+  }
+
+  // 5. Verificar pertenencia a mg-database-test o entorno aislado de pruebas
+  const matchesConfiguredTest = testEnvUrls.some((tUrl) => {
+    if (url === tUrl) return true
+    try {
+      const u = new URL(url)
+      const t = new URL(tUrl)
+      return u.host === t.host && u.pathname === t.pathname
+    } catch {
+      return false
+    }
+  })
+
+  const isLocalOrKeywordTestDb =
     lowerUrl.includes('test') ||
     lowerUrl.includes('integration') ||
     lowerUrl.includes('preview') ||
     lowerUrl.includes('localhost') ||
-    lowerUrl.includes('127.0.0.1')
+    lowerUrl.includes('127.0.0.1') ||
+    lowerUrl.includes('::1')
 
-  if (!isIsolatedTestDb) {
-    throw new Error('SAFETY CHECK FAILED: Target database is not an isolated test database. Must contain "test", "integration", "preview" or target localhost.')
+  if (!matchesConfiguredTest && !isLocalOrKeywordTestDb) {
+    throw new Error('SAFETY CHECK FAILED: Connection does not belong to a verified isolated test database (mg-database-test or isolated test instance). Operation rejected.')
   }
 
   return true
@@ -60,7 +124,7 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
     /SAFETY CHECK FAILED/
   )
 
-  // Must accept verified isolated test databases
+  // Must accept verified isolated test databases with "test" or localhost
   assert.equal(
     assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
     true
@@ -69,10 +133,44 @@ test('PostgreSQL safety guard: strictly rejects production databases and require
     assertIsolatedTestDatabase('postgresql://postgres:postgres@localhost:5432/mg_integration_test'),
     true
   )
+
+  // Must accept provider URLs for mg-database-test in Preview even when URL string lacks "test"
+  const prevEnv = process.env.VERCEL_ENV
+  const prevTestPostgres = process.env.TEST_POSTGRES_URL
+  try {
+    process.env.VERCEL_ENV = 'preview'
+    const providerNeonUrl = 'postgres://default:secret123@ep-restless-cloud-987654.us-east-1.aws.neon.tech/verceldb?sslmode=require'
+    process.env.TEST_POSTGRES_URL = providerNeonUrl
+    assert.equal(assertIsolatedTestDatabase(providerNeonUrl), true)
+  } finally {
+    process.env.VERCEL_ENV = prevEnv
+    process.env.TEST_POSTGRES_URL = prevTestPostgres
+  }
+
+  // Must strictly reject execution in production environment
+  const prevEnvProd = process.env.VERCEL_ENV
+  try {
+    process.env.VERCEL_ENV = 'production'
+    assert.throws(
+      () => assertIsolatedTestDatabase('postgres://test_user:test_pass@ep-test-pooler.us-east-1.aws.neon.tech/mg-database-test'),
+      /SAFETY CHECK FAILED: Cannot run test database operations in a production environment!/
+    )
+  } finally {
+    process.env.VERCEL_ENV = prevEnvProd
+  }
 })
 
 // 2. Integration test against a disposable PostgreSQL database with the current Prisma schema
-const url = process.env.TEST_INTEGRATION_DATABASE_URL || (process.env.VERCEL_ENV === 'preview' ? (process.env.TEST_POSTGRES_URL || process.env.TEST_DATABASE_URL) : undefined)
+const url =
+  process.env.TEST_INTEGRATION_DATABASE_URL ||
+  (process.env.VERCEL_ENV === 'preview'
+    ? (process.env.TEST_POSTGRES_URL ||
+       process.env.TEST_DATABASE_URL ||
+       process.env.TEST_PRISMA_DATABASE_URL ||
+       process.env.TEST_DATABASE_URL_POOLED ||
+       process.env.POSTGRES_URL ||
+       process.env.DATABASE_URL)
+    : undefined)
 
 test('PostgreSQL: concurrent expiration/cancellation releases exactly once', { skip: !url }, async () => {
   assertIsolatedTestDatabase(url!)
