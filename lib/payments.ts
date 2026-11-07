@@ -77,6 +77,26 @@ export function createPaymentService(db: any, stripe: any) {
         if (await tx.stripeEvent.findUnique({ where: { id: event.id } })) return
         await tx.stripeEvent.create({ data: { id: event.id, type: event.type } })
         if (session) {
+          let order = await tx.order.findUnique({ where: { stripeSessionId: session.id }, include: { items: true } })
+          if (!order && session.client_reference_id) {
+            // Self-healing for orphan sessions arriving via webhook
+            const orphanCandidate = await tx.order.findUnique({ where: { id: session.client_reference_id }, include: { items: true } })
+            if (orphanCandidate && !orphanCandidate.stripeSessionId) {
+              const matchesRef = orphanCandidate.id === session.client_reference_id && session.metadata?.orderId === orphanCandidate.id
+              const matchesFin = session.amount_total === Math.round(orphanCandidate.total * 100) && session.currency?.toUpperCase() === orphanCandidate.currency.toUpperCase()
+              const conflicting = await tx.order.findFirst({ where: { stripeSessionId: session.id, id: { not: orphanCandidate.id } } })
+              if (matchesRef && matchesFin && !conflicting) {
+                await tx.order.update({
+                  where: { id: orphanCandidate.id },
+                  data: {
+                    stripeSessionId: session.id,
+                    notes: (orphanCandidate.notes ? orphanCandidate.notes + ' | ' : '') + `Sesión huérfana ${session.id} vinculada por webhook`,
+                  },
+                })
+                order = { ...orphanCandidate, stripeSessionId: session.id }
+              }
+            }
+          }
           const releaseAllowed = session.status === 'expired' || asyncFailed
           const reason = asyncFailed
             ? 'Pago asíncrono fallido o rechazado'
@@ -123,7 +143,135 @@ export function createPaymentService(db: any, stripe: any) {
       return await release(tx, order, reason)
     })
   }
-  return { processEvent, reconcile, cancel, releaseReservation }
+  async function recoverOrphanSession(orderId: string, sessionOrId: any) {
+    const session = typeof sessionOrId === 'string'
+      ? await stripe.checkout.sessions.retrieve(sessionOrId)
+      : sessionOrId
+
+    return await atomic(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      })
+      if (!order) {
+        throw new Error(`Order ${orderId} not found.`)
+      }
+
+      // 1. Validar que el pedido no tenga ya OTRA sesión distinta vinculada
+      if (order.stripeSessionId && order.stripeSessionId !== session.id) {
+        throw new Error(`Order ${orderId} already has a different linked session: ${order.stripeSessionId}`)
+      }
+
+      // 2. Validar que no exista OTRO pedido en BD con esta misma sesión vinculada
+      const conflictingOrder = await tx.order.findFirst({
+        where: {
+          stripeSessionId: session.id,
+          id: { not: order.id },
+        },
+      })
+      if (conflictingOrder) {
+        throw new Error(`Session ${session.id} is already linked to another order: ${conflictingOrder.id}`)
+      }
+
+      // 3. Validar referencia del pedido y metadatos
+      const matchesReference =
+        session.client_reference_id === order.id &&
+        session.metadata?.orderId === order.id
+      if (!matchesReference) {
+        throw new Error(`Session reference mismatch: client_reference_id (${session.client_reference_id}) or metadata.orderId (${session.metadata?.orderId}) does not match order ${order.id}`)
+      }
+
+      // 4. Validar importe y moneda
+      const matchesAmount = session.amount_total === Math.round(order.total * 100)
+      const matchesCurrency = session.currency?.toUpperCase() === order.currency.toUpperCase()
+      if (!matchesAmount || !matchesCurrency) {
+        throw new Error(`Session financial mismatch: amount/currency (${session.amount_total} ${session.currency}) does not match order (${Math.round(order.total * 100)} ${order.currency})`)
+      }
+
+      // 5. Vincular de forma segura order.stripeSessionId = session.id si aún no estaba vinculado
+      if (!order.stripeSessionId) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            stripeSessionId: session.id,
+            notes: (order.notes ? order.notes + ' | ' : '') + `Sesión huérfana ${session.id} vinculada exitosamente`,
+          },
+        })
+        order.stripeSessionId = session.id
+      }
+
+      // 6. Evaluar estado de pago en Stripe
+      const isPaid =
+        session.payment_status === 'paid' ||
+        (session.payment_status === 'no_payment_required' && session.amount_total === 0)
+
+      if (isPaid) {
+        try {
+          await applySession(tx, session, false)
+          return {
+            success: true,
+            status: 'paid',
+            reconciled: true,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            // Si el pago ya se hizo, evitar redirigir a una sesión ya completada en Stripe:
+            // devolver la URL de confirmación de éxito de la tienda.
+            redirectUrl: `/checkout/success?session_id=${session.id}`,
+          }
+        } catch (reconcileErr: any) {
+          console.error(`[Orphan Recovery] Reconciliation failed for order ${order.id}:`, reconcileErr?.message || reconcileErr)
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              notes: (order.notes ? order.notes + ' | ' : '') + `Conciliación fallida: ${reconcileErr?.message || 'Error desconocido'}. Pendiente de revisión manual.`,
+            },
+          })
+          return {
+            success: false,
+            status: 'review_required',
+            reconciled: false,
+            error: 'El pago no pudo ser confirmado automáticamente. El pedido ha sido puesto en revisión administrativa.',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+          }
+        }
+      }
+
+      if (session.status === 'open') {
+        return {
+          success: true,
+          status: 'open',
+          reconciled: false,
+          url: session.url,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        }
+      }
+
+      if (session.status === 'expired') {
+        await release(tx, order, 'Sesión huérfana vinculada pero ya expirada')
+        return {
+          success: false,
+          status: 'expired',
+          reconciled: false,
+          error: 'La sesión de pago en Stripe ha expirado. Por favor genera un nuevo pedido.',
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        }
+      }
+
+      return {
+        success: false,
+        status: session.status,
+        reconciled: false,
+        error: `Estado de sesión no reconocido: ${session.status}`,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      }
+    })
+  }
+
+  return { processEvent, reconcile, cancel, releaseReservation, recoverOrphanSession }
 }
 
 export function createWebhookHandler(getService: () => any, getStripe: () => any, getSecret: () => string | undefined) {

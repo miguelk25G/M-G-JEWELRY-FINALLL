@@ -106,13 +106,36 @@ export async function markOrderAsPaid(orderId: string, amount: number) {
     // Check if order exists
     const order = await db.order.findUnique({
       where: { id: orderId },
+      include: { transactions: true },
     })
 
     if (!order) {
       return { success: false, error: "Order not found." }
     }
 
-    if (order.stripeSessionId) throw new Error("Use Stripe reconciliation for this order.")
+    if (order.stripeSessionId) {
+      throw new Error("Use Stripe reconciliation for this order.")
+    }
+
+    // Regla estricta: un pedido con reserva de Stripe pendiente de conciliación
+    // debe quedar fuera del flujo de pago manual.
+    const hasStripePendingReservation =
+      order.reservationStatus === "reserved" &&
+      (
+        (order.notes && order.notes.toLowerCase().includes("stripe")) ||
+        order.transactions?.some((t: any) => t.provider === "stripe")
+      )
+
+    if (hasStripePendingReservation) {
+      throw new Error(
+        "Este pedido tiene una reserva de Stripe pendiente de conciliación. Debe conciliarse con Stripe o liberarse antes de aplicar un pago manual."
+      )
+    }
+
+    if (order.status === "cancelled" || order.paymentStatus === "refunded") {
+      throw new Error("No se puede registrar un pago manual en un pedido cancelado o reembolsado.")
+    }
+
     await db.$transaction(async (tx: any) => {
       // Record manual administrative payment transaction
       await tx.transaction.create({
@@ -130,13 +153,21 @@ export async function markOrderAsPaid(orderId: string, amount: number) {
         },
       })
 
-      // Update order fulfillment status to processing if it was pending
-      if (order.status === "pending" || order.status === "pending_concierge") {
-        await tx.order.update({
-          where: { id: orderId },
-          data: { status: "processing" },
-        })
-      }
+      // Update order fulfillment status to processing if it was pending or pending_concierge
+      // Y actualizar paymentStatus a "paid" para permitir su posterior despacho atómico
+      const nextStatus =
+        order.status === "pending" || order.status === "pending_concierge"
+          ? "processing"
+          : order.status
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          paymentStatus: "paid",
+          reservationStatus: order.reservationStatus === "reserved" ? "consumed" : order.reservationStatus,
+          status: nextStatus,
+        },
+      })
     })
 
     revalidatePath("/admin/orders")
@@ -163,8 +194,29 @@ export async function syncOrderPaymentWithStripe(orderId: string) {
       return { success: false, error: "Order not found." }
     }
 
-    if (!order.stripeSessionId) throw new Error("Legacy order requires manual reconciliation.")
-    await createPaymentService(db, getStripe()).reconcile(order.stripeSessionId)
+    const stripeInstance = getStripe()
+    const paymentService = createPaymentService(db, stripeInstance)
+
+    if (order.stripeSessionId) {
+      await paymentService.reconcile(order.stripeSessionId)
+    } else {
+      // Intento de recuperación de sesión huérfana en Stripe si no tiene stripeSessionId
+      let candidateSession: any = null
+      try {
+        const searchList = await stripeInstance.checkout.sessions.list({ limit: 10 })
+        candidateSession = searchList.data.find(
+          (s: any) => s.client_reference_id === order.id || s.metadata?.orderId === order.id
+        )
+      } catch (searchErr) {
+        console.error("Error searching Stripe sessions for orphan order:", searchErr)
+      }
+
+      if (candidateSession) {
+        await paymentService.recoverOrphanSession(order.id, candidateSession)
+      } else {
+        throw new Error("No se encontró una sesión de Stripe vinculada a este pedido. Requiere conciliación manual.")
+      }
+    }
 
     revalidatePath("/admin/orders")
     return { success: true }

@@ -509,7 +509,27 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       }
 
       if (recoveredSession && recoveredSession.id) {
-        session = recoveredSession
+        const stripeInstance = getStripe()
+        const paymentService = createPaymentService(db, stripeInstance)
+        const recoveryResult = await paymentService.recoverOrphanSession(order.id, recoveredSession)
+        if (recoveryResult.reconciled && recoveryResult.status === 'paid') {
+          // Si el pago ya se hizo, devolver resultado acorde con la confirmación
+          // y evitar redirigir a una sesión ya completada en Stripe
+          return {
+            success: true,
+            url: `${hostUrl}/checkout/success?session_id=${recoveredSession.id}`,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+          }
+        } else if (recoveryResult.status === 'open') {
+          session = recoveredSession
+        } else {
+          return {
+            success: false,
+            error: recoveryResult.error || "Tu pedido requiere verificación manual. No se realizó ningún cargo duplicado.",
+            orderId: order.id,
+          }
+        }
       } else {
         // Cannot confirm non-existence of session in Stripe.
         // Retain reservation to prevent overselling; record operational notes for reconciliation.
@@ -555,21 +575,25 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         error: dbRegisterError?.message || dbRegisterError,
       })
 
-      // Ensure stripeSessionId is recorded on the order if at all possible,
-      // so webhooks and admin reconciliation can always track it.
+      const stripeInstance = getStripe()
+      const paymentService = createPaymentService(db, stripeInstance)
+
+      // Intentar recuperación y vinculación segura de la sesión huérfana
       try {
-        await db.order.update({
-          where: { id: order.id },
-          data: {
-            stripeSessionId: session.id,
-            notes: "Fallo al registrar transacción en BD; pendiente de resolución con Stripe.",
-          },
-        })
-      } catch (linkErr: any) {
-        console.error(`[Order Link Error] Failed to link session ${session.id} to order ${order.id}:`, linkErr?.message || linkErr)
+        const recoveryResult = await paymentService.recoverOrphanSession(order.id, session)
+        if (recoveryResult.reconciled && recoveryResult.status === 'paid') {
+          return {
+            success: true,
+            url: `${hostUrl}/checkout/success?session_id=${session.id}`,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+          }
+        }
+      } catch (recoverErr: any) {
+        console.error(`[Order Link Error] Failed to link session ${session.id} to order ${order.id}:`, recoverErr?.message || recoverErr)
       }
 
-      const stripeInstance = getStripe()
+      // Check authoritative state in Stripe
       let currentSession: Stripe.Checkout.Session | null = null
       try {
         currentSession = await stripeInstance.checkout.sessions.retrieve(session.id)
@@ -583,13 +607,13 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       if (isPaid) {
         // Customer paid before or during registration error. Apply centralized confirmation and NEVER release inventory!
         try {
-          await createPaymentService(db, stripeInstance).reconcile(session.id)
+          await paymentService.reconcile(session.id)
         } catch (recErr: any) {
           console.error(`[Order Reconciliation Error] Failed to confirm paid session ${session.id}:`, recErr?.message || recErr)
         }
         return {
           success: true,
-          url: session.url,
+          url: `${hostUrl}/checkout/success?session_id=${session.id}`,
           orderId: order.id,
           orderNumber: order.orderNumber,
         }

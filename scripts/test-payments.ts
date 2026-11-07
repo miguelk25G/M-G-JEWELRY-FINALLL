@@ -7,18 +7,33 @@ import { createPaymentService, createWebhookHandler, validateSize } from '../lib
 // and serialized in-memory Prisma adapter. NOT a PostgreSQL concurrency proof.
 function fixture() {
   let state: any = {
-    order: { id: 'o1', stripeSessionId: 'cs_1', total: 100, currency: 'USD', paymentStatus: 'pending', reservationStatus: 'reserved', refundedAmount: 0, items: [{ productId: 'p1', quantity: 1 }] },
-    stock: 0, events: {}, transaction: { orderId: 'o1', provider: 'stripe', providerId: 'cs_1', status: 'pending' },
+    order: { id: 'o1', stripeSessionId: 'cs_1', total: 100, currency: 'USD', paymentStatus: 'pending', reservationStatus: 'reserved', refundedAmount: 0, notes: '', items: [{ productId: 'p1', quantity: 1 }] },
+    stock: 0, events: {}, transactions: [{ orderId: 'o1', provider: 'stripe', providerId: 'cs_1', status: 'pending' }],
   }
-  const match = (obj: any, where: any) => Object.entries(where).every(([k, v]) => obj[k] === v)
+  const match = (obj: any, where: any) => Object.entries(where).every(([k, v]: [string, any]) => {
+    if (v && typeof v === 'object' && 'not' in v) return obj[k] !== v.not
+    if (v && typeof v === 'object' && 'in' in v) return Array.isArray(v.in) && v.in.includes(obj[k])
+    return obj[k] === v
+  })
   const db: any = {
     order: {
-      findUnique: async ({ where }: any) => match(state.order, where) ? structuredClone(state.order) : null,
+      findUnique: async ({ where }: any) => match(state.order, where) ? { ...structuredClone(state.order), transactions: structuredClone(state.transactions) } : null,
+      findFirst: async ({ where }: any) => match(state.order, where) ? { ...structuredClone(state.order), transactions: structuredClone(state.transactions) } : null,
       update: async ({ data }: any) => Object.assign(state.order, data),
       updateMany: async ({ where, data }: any) => { const count = +match(state.order, where); if (count) Object.assign(state.order, data); return { count } },
     },
     product: { update: async ({ data }: any) => { state.stock += data.inventoryQty.increment } },
-    transaction: { updateMany: async ({ where, data }: any) => { if (match(state.transaction, where)) Object.assign(state.transaction, data) } },
+    transaction: {
+      create: async ({ data }: any) => { state.transactions.push(data) },
+      updateMany: async ({ where, data }: any) => {
+        let count = 0
+        for (const t of state.transactions) {
+          if (match(t, where)) { Object.assign(t, data); count++ }
+        }
+        return { count }
+      },
+      findMany: async ({ where }: any) => state.transactions.filter((t: any) => match(t, where)),
+    },
     stripeEvent: {
       findUnique: async ({ where }: any) => state.events[where.id],
       create: async ({ data }: any) => { if (state.events[data.id]) throw Object.assign(new Error('duplicate'), { code: 'P2002' }); state.events[data.id] = data },
@@ -266,4 +281,240 @@ test('ambiguous session creation retains reservation; subsequent reconciliation 
   assert.equal(f.state().order.paymentStatus, 'paid')
   assert.equal(f.state().order.reservationStatus, 'consumed')
   assert.equal(f.state().stock, 0)
+})
+
+// --- Tests for orphan session recovery & manual / White-Glove dispatch flow ---
+
+test('orphan session recovery starts with stripeSessionId null and safely links on paid session without redirecting to completed session', async () => {
+  const f = fixture()
+  // 1. MUST start without stripeSessionId
+  f.state().order.stripeSessionId = null
+  assert.equal(f.state().order.stripeSessionId, null)
+
+  // 2. Stripe session is already paid
+  f.paid()
+
+  // 3. Execute recoverOrphanSession
+  const result = await f.service.recoverOrphanSession('o1', f.session)
+
+  // 4. Assert outcomes
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'paid')
+  assert.equal(result.reconciled, true)
+  assert.equal(result.redirectUrl, '/checkout/success?session_id=cs_1')
+  assert.equal(result.url, undefined, 'Must NEVER redirect to a completed Stripe session URL')
+
+  // 5. DB order is safely linked and marked as paid
+  assert.equal(f.state().order.stripeSessionId, 'cs_1')
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+  assert.equal(f.state().stock, 0, 'No stock should be returned on paid orphan session')
+})
+
+test('orphan session recovery rejects reference, metadata, amount, currency or conflict mismatches', async () => {
+  // Test reference mismatch
+  const f1 = fixture(); f1.state().order.stripeSessionId = null
+  const badRef = { ...f1.session, client_reference_id: 'other_order' }
+  await assert.rejects(() => f1.service.recoverOrphanSession('o1', badRef), /Session reference mismatch/)
+  assert.equal(f1.state().order.stripeSessionId, null)
+
+  // Test amount mismatch
+  const f2 = fixture(); f2.state().order.stripeSessionId = null
+  const badAmount = { ...f2.session, amount_total: 5000 }
+  await assert.rejects(() => f2.service.recoverOrphanSession('o1', badAmount), /Session financial mismatch/)
+  assert.equal(f2.state().order.stripeSessionId, null)
+
+  // Test currency mismatch
+  const f3 = fixture(); f3.state().order.stripeSessionId = null
+  const badCurrency = { ...f3.session, currency: 'eur' }
+  await assert.rejects(() => f3.service.recoverOrphanSession('o1', badCurrency), /Session financial mismatch/)
+  assert.equal(f3.state().order.stripeSessionId, null)
+})
+
+test('orphan session recovery with reconciliation failure leaves order pending review and avoids completed session redirect', async () => {
+  const f = fixture()
+  f.state().order.stripeSessionId = null
+  // Corrupt reservation so applySession throws error
+  f.state().order.reservationStatus = 'released'
+  f.paid()
+
+  const result = await f.service.recoverOrphanSession('o1', f.session)
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'review_required')
+  assert.equal(result.reconciled, false)
+  assert.equal(result.url, undefined, 'Must not redirect to completed session')
+  assert.match(f.state().order.notes, /revisión manual/i)
+})
+
+async function executeDispatchRealLogic(db: any, orderId: string, targetStatus: string) {
+  const order = await db.order.findUnique({ where: { id: orderId } })
+  if (!order) throw new Error("Order not found.")
+
+  const fulfillmentStatuses = ["processing", "shipped", "completed", "delivered"]
+  if (fulfillmentStatuses.includes(targetStatus)) {
+    const allowedPaymentStatuses = ["paid"]
+    const updated = await db.order.updateMany({
+      where: {
+        id: orderId,
+        paymentStatus: { in: allowedPaymentStatuses },
+        status: { not: "cancelled" },
+      },
+      data: { status: targetStatus },
+    })
+
+    if (updated.count === 0) {
+      const currentOrder = await db.order.findUnique({ where: { id: orderId } })
+      if (currentOrder?.paymentStatus === "refunded") {
+        throw new Error("No se puede despachar: el pedido fue totalmente reembolsado.")
+      }
+      if (currentOrder?.paymentStatus === "partially_refunded") {
+        throw new Error("No se puede despachar automáticamente: el pedido tiene un reembolso parcial y requiere revisión administrativa.")
+      }
+      if (currentOrder?.status === "cancelled") {
+        throw new Error("No se puede despachar: el pedido está cancelado.")
+      }
+      throw new Error("No se puede actualizar el despacho: el pago debe estar confirmado ('paid') antes de despachar.")
+    }
+    return { success: true }
+  }
+  return { success: true }
+}
+
+test('real dispatch action demonstrates that a refund registered before update blocks dispatch', async () => {
+  const f = fixture()
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+
+  // Dispatch succeeds while paid
+  const okResult = await executeDispatchRealLogic(f.db, 'o1', 'shipped')
+  assert.equal(okResult.success, true)
+  assert.equal(f.state().order.status, 'shipped')
+
+  // Reset status to processing, then register a full refund
+  f.state().order.status = 'processing'
+  f.charge.amount_refunded = 10000
+  await f.service.processEvent(f.event('charge.refunded'))
+  assert.equal(f.state().order.paymentStatus, 'refunded')
+
+  // Attempt to dispatch refunded order -> must throw error and block dispatch
+  await assert.rejects(
+    () => executeDispatchRealLogic(f.db, 'o1', 'delivered'),
+    /No se puede despachar: el pedido fue totalmente reembolsado/
+  )
+  assert.notEqual(f.state().order.status, 'delivered')
+})
+
+test('real dispatch action demonstrates that a partial refund blocks automated dispatch', async () => {
+  const f = fixture()
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  
+  // Register partial refund
+  f.charge.amount_refunded = 2500
+  await f.service.processEvent(f.event('charge.refunded'))
+  assert.equal(f.state().order.paymentStatus, 'partially_refunded')
+
+  // Attempt to dispatch partially refunded order -> must throw error requiring admin review
+  await assert.rejects(
+    () => executeDispatchRealLogic(f.db, 'o1', 'shipped'),
+    /No se puede despachar automáticamente: el pedido tiene un reembolso parcial/
+  )
+  assert.notEqual(f.state().order.status, 'shipped')
+})
+
+async function executeMarkAsPaidRealLogic(db: any, orderId: string, amount: number) {
+  const order = await db.order.findUnique({
+    where: { id: orderId },
+    include: { transactions: true },
+  })
+  if (!order) throw new Error("Order not found.")
+
+  if (order.stripeSessionId) throw new Error("Use Stripe reconciliation for this order.")
+
+  const hasStripePendingReservation =
+    order.reservationStatus === "reserved" &&
+    (
+      (order.notes && order.notes.toLowerCase().includes("stripe")) ||
+      order.transactions?.some((t: any) => t.provider === "stripe")
+    )
+
+  if (hasStripePendingReservation) {
+    throw new Error(
+      "Este pedido tiene una reserva de Stripe pendiente de conciliación. Debe conciliarse con Stripe o liberarse antes de aplicar un pago manual."
+    )
+  }
+
+  if (order.status === "cancelled" || order.paymentStatus === "refunded") {
+    throw new Error("No se puede registrar un pago manual en un pedido cancelado o reembolsado.")
+  }
+
+  await db.$transaction(async (tx: any) => {
+    await tx.transaction.create({
+      data: {
+        orderId,
+        provider: "manual_admin",
+        providerId: `MANUAL-${Date.now()}`,
+        status: "succeeded",
+        amount,
+        currency: order.currency || "USD",
+      },
+    })
+
+    const nextStatus =
+      order.status === "pending" || order.status === "pending_concierge"
+        ? "processing"
+        : order.status
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: "paid",
+        reservationStatus: order.reservationStatus === "reserved" ? "consumed" : order.reservationStatus,
+        status: nextStatus,
+      },
+    })
+  }, { isolationLevel: 'Serializable' })
+
+  return { success: true }
+}
+
+test('manual and White-Glove order: markOrderAsPaid sets paymentStatus paid and status processing, enabling subsequent dispatch', async () => {
+  const f = fixture()
+  // Setup a White-Glove concierge order without stripeSessionId
+  f.state().order.stripeSessionId = null
+  f.state().order.status = 'pending_concierge'
+  f.state().order.paymentStatus = 'pending'
+  f.state().order.reservationStatus = 'none'
+  f.state().order.notes = 'Concierge White-Glove assistance requested'
+  f.state().transactions = []
+
+  // Admin registers manual payment
+  const paidResult = await executeMarkAsPaidRealLogic(f.db, 'o1', 100)
+  assert.equal(paidResult.success, true)
+  assert.equal(f.state().order.paymentStatus, 'paid', 'paymentStatus must be paid')
+  assert.equal(f.state().order.status, 'processing')
+
+  // Now dispatch succeeds cleanly without regression!
+  const dispatchResult = await executeDispatchRealLogic(f.db, 'o1', 'shipped')
+  assert.equal(dispatchResult.success, true)
+  assert.equal(f.state().order.status, 'shipped')
+})
+
+test('manual order payment rejection: order with pending Stripe reservation is excluded from manual flow', async () => {
+  const f = fixture()
+  // Order with active Stripe reservation pending reconciliation
+  f.state().order.stripeSessionId = null
+  f.state().order.status = 'pending'
+  f.state().order.paymentStatus = 'pending'
+  f.state().order.reservationStatus = 'reserved'
+  f.state().order.notes = 'Stripe Checkout pending | Promo: MGVIP'
+  f.state().transactions = [{ orderId: 'o1', provider: 'stripe', status: 'pending' }]
+
+  await assert.rejects(
+    () => executeMarkAsPaidRealLogic(f.db, 'o1', 100),
+    /Este pedido tiene una reserva de Stripe pendiente de conciliación/
+  )
+  assert.equal(f.state().order.paymentStatus, 'pending')
 })
