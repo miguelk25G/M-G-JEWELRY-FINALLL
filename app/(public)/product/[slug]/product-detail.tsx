@@ -387,7 +387,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             </TabsContent>
             <TabsContent value="shipping" className="mt-6">
               <div className="space-y-4 text-muted-foreground">
-                <p>Free shipping on all orders over $500. Orders are processed within 1-2 business days.</p>
+                <p>{locale === 'es' ? 'Envío asegurado estándar de $25 USD en todos los pedidos. Los pedidos se procesan en 1-2 días hábiles.' : 'Standard insured shipping is $25 USD on all orders. Orders are processed within 1-2 business days.'}</p>
                 <p>All items are shipped fully insured via FedEx with signature required for delivery.</p>
                 <p>International shipping available to select countries.</p>
               </div>

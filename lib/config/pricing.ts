@@ -1,29 +1,24 @@
 /**
  * CHECKOUT PRICING & TAX CONFIGURATION
  * 
- * ⚠️ PENDIENTE DE VALIDACIÓN COMERCIAL Y FISCAL:
- * Los valores actuales (8% de impuesto estimado y $25 de costo de envío con gratuidad
- * para pedidos superiores a $500 USD) constituyen una parametrización de desarrollo.
+ * Tarifa confirmada de envío estándar: $25 USD en todos los pedidos de joyería de lujo.
+ * Se elimina la gratuidad a partir de $500 USD por decisión comercial.
  * 
- * PLAN DE CÁLCULO ANTES DEL LANZAMIENTO REAL EN PRODUCCIÓN:
- * 1. Impuestos (Fiscal): Se migrará a Stripe Tax (`automatic_tax: { enabled: true }`)
- *    para calcular de manera precisa y legal los impuestos estatales, condales y municipales
- *    en Estados Unidos y territorio internacional en base a la dirección de destino.
- * 2. Envíos (Comercial): Se conectará a tarifas dinámicas con empresas de logística de alta
- *    seguridad (FedEx / Brink's / Malca-Amit con seguro blindado para joyería de alto valor)
- *    o reglas escalonadas por peso y valor asegurado.
+ * 1. Envíos (Comercial): Tarifa fija estándar de $25.00 USD con entrega totalmente asegurada
+ *    (Standard Insured Jewelry Shipping). La cotización dinámica de FedEx por peso, dimensiones
+ *    de caja y destino queda pospuesta para una fase posterior.
+ * 2. Impuestos (Fiscal): 8% de impuesto estimado preliminar.
  */
 
 export const CHECKOUT_PRICING_CONFIG = {
   // Estado de validación
-  status: "PENDING_BUSINESS_AND_TAX_VALIDATION",
+  status: "CONFIRMED_STANDARD_SHIPPING",
   validationNotice:
-    "Configuración preliminar de impuestos (8%) y envío ($25, gratis > $500) pendiente de validación fiscal y comercial antes del despliegue final.",
+    "Tarifa de envío estándar confirmada en $25 USD para todos los pedidos. Impuestos estimados preliminares (8%).",
 
-  // Parámetros numéricos actuales
+  // Parámetros numéricos
   ESTIMATED_TAX_RATE: 0.08,
   STANDARD_SHIPPING_FEE: 25.0,
-  FREE_SHIPPING_THRESHOLD: 500.0,
   DEFAULT_CURRENCY: "USD",
 } as const
 
@@ -42,10 +37,9 @@ export function calculateOrderTotals(params: {
 }): OrderPricingBreakdown {
   const discountAmount = Math.max(0, Math.round((params.discountAmount || 0) * 100) / 100)
   const discountedSubtotal = Math.max(0, Math.round((params.subtotal - discountAmount) * 100) / 100)
-  const shipping =
-    discountedSubtotal >= CHECKOUT_PRICING_CONFIG.FREE_SHIPPING_THRESHOLD
-      ? 0
-      : CHECKOUT_PRICING_CONFIG.STANDARD_SHIPPING_FEE
+  
+  // Tarifa estándar de $25 USD en todos los pedidos
+  const shipping = CHECKOUT_PRICING_CONFIG.STANDARD_SHIPPING_FEE
   const tax = Math.round(discountedSubtotal * CHECKOUT_PRICING_CONFIG.ESTIMATED_TAX_RATE * 100) / 100
   const total = Math.round((discountedSubtotal + shipping + tax) * 100) / 100
 

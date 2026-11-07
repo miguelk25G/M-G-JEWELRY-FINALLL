@@ -33,70 +33,60 @@ async function asyncTest(name, fn) {
   }
 }
 
-console.log('\n--- 1. Testing Pricing, Tax (8%) & Shipping Configuration ---');
+console.log('\n--- 1. Testing Pricing, Tax (8%) & Flat $25 Shipping Configuration ---');
 
-test('Free shipping applies for orders over $500', () => {
-  const totals = calculateOrderTotals({ subtotal: 600 });
-  assert.strictEqual(totals.shipping, 0, 'Shipping should be 0 for > $500');
-  assert.strictEqual(totals.tax, 48.0, 'Tax should be 8% of 600 = $48');
-  assert.strictEqual(totals.total, 648.0, 'Total should be 600 + 48 = 648');
-});
-
-test('Standard $25 shipping applies for orders <= $500', () => {
-  const totals = calculateOrderTotals({ subtotal: 350 });
-  assert.strictEqual(totals.shipping, 25, 'Shipping should be $25 for <= $500');
-  assert.strictEqual(totals.tax, 28.0, 'Tax should be 8% of 350 = $28');
-  assert.strictEqual(totals.total, 403.0, 'Total should be 350 + 25 + 28 = 403');
-});
-
-test('Threshold: $499.99 net subtotal pays standard $25 shipping and 8% tax', () => {
+test('Standard $25 shipping applies for $499.99 net subtotal and 8% tax', () => {
   const totals = calculateOrderTotals({ subtotal: 499.99 });
   assert.strictEqual(totals.discountedSubtotal, 499.99);
-  assert.strictEqual(totals.shipping, 25.0);
-  assert.strictEqual(totals.tax, 40.0);
-  assert.strictEqual(totals.total, 564.99);
+  assert.strictEqual(totals.shipping, 25.0, 'Shipping must be exactly $25.00 for $499.99');
+  assert.strictEqual(totals.tax, 40.0, 'Tax should be 8% of 499.99 = $40.00');
+  assert.strictEqual(totals.total, 564.99, 'Total should be 499.99 + 25 + 40 = 564.99');
 });
 
-test('Threshold: $500.00 net subtotal qualifies for free shipping ($0) and 8% tax', () => {
+test('Standard $25 shipping applies for $500.00 net subtotal (no free shipping) and 8% tax', () => {
   const totals = calculateOrderTotals({ subtotal: 500.00 });
   assert.strictEqual(totals.discountedSubtotal, 500.00);
-  assert.strictEqual(totals.shipping, 0.0);
-  assert.strictEqual(totals.tax, 40.0);
-  assert.strictEqual(totals.total, 540.00);
+  assert.strictEqual(totals.shipping, 25.0, 'Shipping must be exactly $25.00 for $500.00');
+  assert.strictEqual(totals.tax, 40.0, 'Tax should be 8% of 500 = $40.00');
+  assert.strictEqual(totals.total, 565.00, 'Total should be 500 + 25 + 40 = 565.00');
 });
 
-test('Threshold: $500.01 net subtotal qualifies for free shipping ($0) and 8% tax', () => {
+test('Standard $25 shipping applies for $500.01 net subtotal and 8% tax', () => {
   const totals = calculateOrderTotals({ subtotal: 500.01 });
   assert.strictEqual(totals.discountedSubtotal, 500.01);
-  assert.strictEqual(totals.shipping, 0.0);
-  assert.strictEqual(totals.tax, 40.0);
-  assert.strictEqual(totals.total, 540.01);
+  assert.strictEqual(totals.shipping, 25.0, 'Shipping must be exactly $25.00 for $500.01');
+  assert.strictEqual(totals.tax, 40.0, 'Tax should be 8% of 500.01 = $40.00');
+  assert.strictEqual(totals.total, 565.01, 'Total should be 500.01 + 25 + 40 = 565.01');
 });
 
-test('Discount correctly reduces subtotal before tax and shipping thresholds', () => {
-  const totals = calculateOrderTotals({ subtotal: 550, discountAmount: 100 });
-  // discountedSubtotal is 450 (which drops below $500 threshold, so shipping is $25)
-  assert.strictEqual(totals.discountedSubtotal, 450);
-  assert.strictEqual(totals.shipping, 25);
-  assert.strictEqual(totals.tax, 36.0, 'Tax should be 8% of 450 = $36');
-  assert.strictEqual(totals.total, 511.0, 'Total should be 450 + 25 + 36 = 511');
+test('Standard $25 shipping applies for orders over $500 (e.g. $600)', () => {
+  const totals = calculateOrderTotals({ subtotal: 600 });
+  assert.strictEqual(totals.discountedSubtotal, 600.0);
+  assert.strictEqual(totals.shipping, 25.0, 'Shipping must be $25.00 on orders over $500');
+  assert.strictEqual(totals.tax, 48.0, 'Tax should be 8% of 600 = $48.00');
+  assert.strictEqual(totals.total, 673.0, 'Total should be 600 + 25 + 48 = 673.00');
 });
 
-test('Threshold evaluation applies strictly AFTER discounts and BEFORE taxes', () => {
-  // $550 with $50 discount leaves $500.00 net -> free shipping
-  const reaching500 = calculateOrderTotals({ subtotal: 550, discountAmount: 50 });
-  assert.strictEqual(reaching500.discountedSubtotal, 500.00);
-  assert.strictEqual(reaching500.shipping, 0.0);
+test('Standard $25 shipping applies when discounts are applied (e.g. $550 with $50 or $100 discount)', () => {
+  // $550 with $50 discount -> discountedSubtotal is $500.00 -> shipping is still $25
+  const discountedAt500 = calculateOrderTotals({ subtotal: 550, discountAmount: 50 });
+  assert.strictEqual(discountedAt500.discountedSubtotal, 500.0);
+  assert.strictEqual(discountedAt500.shipping, 25.0, 'Shipping must be $25 after discount to $500');
+  assert.strictEqual(discountedAt500.tax, 40.0);
+  assert.strictEqual(discountedAt500.total, 565.0);
 
-  // $550 with $50.01 discount leaves $499.99 net -> pays $25 shipping
-  const droppingBelow500 = calculateOrderTotals({ subtotal: 550, discountAmount: 50.01 });
-  assert.strictEqual(droppingBelow500.discountedSubtotal, 499.99);
-  assert.strictEqual(droppingBelow500.shipping, 25.0);
+  // $550 with $100 discount -> discountedSubtotal is $450.00 -> shipping is still $25
+  const discountedAt450 = calculateOrderTotals({ subtotal: 550, discountAmount: 100 });
+  assert.strictEqual(discountedAt450.discountedSubtotal, 450.0);
+  assert.strictEqual(discountedAt450.shipping, 25.0, 'Shipping must be $25 after discount to $450');
+  assert.strictEqual(discountedAt450.tax, 36.0);
+  assert.strictEqual(discountedAt450.total, 511.0);
 });
 
-test('Validation notice indicates pending commercial and fiscal validation', () => {
-  assert.strictEqual(CHECKOUT_PRICING_CONFIG.status, 'PENDING_BUSINESS_AND_TAX_VALIDATION');
-  assert(CHECKOUT_PRICING_CONFIG.validationNotice.includes('pendiente de validación'));
+test('Checkout pricing configuration confirms standard $25 shipping for all orders', () => {
+  assert.strictEqual(CHECKOUT_PRICING_CONFIG.STANDARD_SHIPPING_FEE, 25.0);
+  assert.strictEqual(CHECKOUT_PRICING_CONFIG.status, 'CONFIRMED_STANDARD_SHIPPING');
+  assert(CHECKOUT_PRICING_CONFIG.validationNotice.includes('25 USD'));
 });
 
 console.log('\n--- 2. Testing Concurrency & Inventory Reservation on Last Unit ---');
