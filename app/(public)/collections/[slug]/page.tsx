@@ -86,16 +86,13 @@ export default async function CollectionPage({ params }: Props) {
   })
   
   // Fallback to static mock or generic
-  let collectionData = dbCollection
-  
-  if (!collectionData) {
-    collectionData = (collections[collectionKey] as any) || {
-       name: slug.charAt(0).toUpperCase() + slug.slice(1),
-       nameEs: slug.charAt(0).toUpperCase() + slug.slice(1),
-       description: "Explore our collection.",
-       descriptionEs: "Explora nuestra colección."
-    }
+  const fallbackCollection = (collections[collectionKey] as any) || {
+    name: slug.charAt(0).toUpperCase() + slug.slice(1),
+    nameEs: slug.charAt(0).toUpperCase() + slug.slice(1),
+    description: "Explore our collection.",
+    descriptionEs: "Explora nuestra colección."
   }
+  const collectionData: any = dbCollection || fallbackCollection
 
   // Format collection response dynamically based on Locale
   const finalCollectionInfo = {

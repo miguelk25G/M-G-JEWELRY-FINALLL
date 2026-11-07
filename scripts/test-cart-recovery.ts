@@ -194,3 +194,31 @@ test('CartStore updateItemSize: modifies exclusively the targeted line by ID', (
   assert.equal(items[1].size, '7', 'Item 2 size must remain untouched')
   assert.equal(items[1].quantity, 2, 'Item 2 quantity must remain untouched')
 })
+
+test('formatPrice: renders strictly with two decimal places', async () => {
+  const { formatPrice } = await import('../lib/format')
+  assert.equal(formatPrice(10), '$10.00')
+  assert.equal(formatPrice(35.8), '$35.80')
+  assert.equal(formatPrice(0), '$0.00')
+  assert.equal(formatPrice(500.5), '$500.50')
+})
+
+test('Order financials: calculates original, refunded and net without unit confusion', () => {
+  const order = {
+    total: 35.80,
+    refundedAmountCents: 500, // stored in cents in DB
+  }
+  const refundedDollars = order.refundedAmountCents / 100
+  const netAmount = Math.max(0, Math.round((order.total - refundedDollars) * 100) / 100)
+
+  assert.equal(refundedDollars, 5.00, '500 cents must convert to exactly $5.00')
+  assert.equal(netAmount, 30.80, 'Net amount must be 35.80 - 5.00 = $30.80')
+
+  // Full refund scenario
+  const fullRefundCents = 3580
+  const fullRefundDollars = fullRefundCents / 100
+  const fullNet = Math.max(0, Math.round((order.total - fullRefundDollars) * 100) / 100)
+
+  assert.equal(fullRefundDollars, 35.80)
+  assert.equal(fullNet, 0.00)
+})

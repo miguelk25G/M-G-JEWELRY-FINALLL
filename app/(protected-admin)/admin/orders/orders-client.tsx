@@ -140,6 +140,8 @@ export function OrdersClient({ orders }: { orders: any[] }) {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(price)
   }
 
@@ -247,7 +249,22 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                     </button>
                   </TableCell>
                   <TableCell className="font-semibold text-sm">
-                    {formatPrice(order.total)}
+                    {order.refundedAmount > 0 ? (
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-foreground">
+                          {formatPrice(order.netAmount ?? (order.total - order.refundedAmount))}
+                          <span className="text-[10px] text-muted-foreground ml-1 font-normal">(Neto)</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground line-through">
+                          {formatPrice(order.total)}
+                        </div>
+                        <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                          -{formatPrice(order.refundedAmount)}
+                        </div>
+                      </div>
+                    ) : (
+                      formatPrice(order.total)
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge className={paymentColors[order.payment] || "bg-yellow-500/10 text-yellow-500"}>
@@ -255,9 +272,21 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge className={statusColors[order.status] || "bg-yellow-500/10 text-yellow-500"}>
-                      {order.status}
-                    </Badge>
+                    <div>
+                      <Badge className={statusColors[order.status] || "bg-yellow-500/10 text-yellow-500"}>
+                        {order.status}
+                      </Badge>
+                      {order.notes && (
+                        <p className="text-[10px] text-muted-foreground mt-1 max-w-[140px] truncate" title={order.notes}>
+                          {order.notes}
+                        </p>
+                      )}
+                      {order.payment === "Refunded" && (
+                        <span className="block text-[10px] text-red-500 font-medium mt-0.5">
+                          Despacho bloqueado
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
                     {order.date}
@@ -286,17 +315,26 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                             Sync with Stripe
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Processing")}>
+                        <DropdownMenuItem
+                          disabled={order.payment === "Refunded"}
+                          onClick={() => handleStatusChange(order.id, "Processing")}
+                        >
                           <Clock className="h-4 w-4 mr-2" />
-                          Mark as Processing
+                          {order.payment === "Refunded" ? "Processing (Bloqueado por reembolso)" : "Mark as Processing"}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Shipped")}>
+                        <DropdownMenuItem
+                          disabled={order.payment === "Refunded"}
+                          onClick={() => handleStatusChange(order.id, "Shipped")}
+                        >
                           <Truck className="h-4 w-4 mr-2" />
-                          Mark as Shipped
+                          {order.payment === "Refunded" ? "Shipped (Bloqueado por reembolso)" : "Mark as Shipped"}
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleStatusChange(order.id, "Completed")}>
+                        <DropdownMenuItem
+                          disabled={order.payment === "Refunded"}
+                          onClick={() => handleStatusChange(order.id, "Completed")}
+                        >
                           <CheckCircle className="h-4 w-4 mr-2" />
-                          Mark as Completed
+                          {order.payment === "Refunded" ? "Completed (Bloqueado por reembolso)" : "Mark as Completed"}
                         </DropdownMenuItem>
                         {order.status !== "Cancelled" && (
                           <DropdownMenuItem
@@ -382,9 +420,21 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                   <span>{formatPrice(selectedOrder.tax || 0)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-sm border-t pt-1">
-                  <span>Total:</span>
+                  <span>Total Original:</span>
                   <span>{formatPrice(selectedOrder.total)}</span>
                 </div>
+                {selectedOrder.refundedAmount > 0 && (
+                  <>
+                    <div className="flex justify-between text-amber-600 dark:text-amber-400 font-medium">
+                      <span>Total Reembolsado:</span>
+                      <span>-{formatPrice(selectedOrder.refundedAmount)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-sm text-foreground border-t pt-1">
+                      <span>Total Neto:</span>
+                      <span>{formatPrice(selectedOrder.netAmount ?? (selectedOrder.total - selectedOrder.refundedAmount))}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

@@ -29,6 +29,9 @@ export default async function OrdersPage() {
       displayStatus = order.status.charAt(0).toUpperCase() + order.status.slice(1)
     }
 
+    const refundedDollars = (order.refundedAmount || 0) / 100
+    const netAmount = Math.max(0, Math.round((order.total - refundedDollars) * 100) / 100)
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -40,6 +43,9 @@ export default async function OrdersPage() {
       shipping: order.shipping,
       tax: order.tax,
       discount: order.discount,
+      refundedAmount: refundedDollars,
+      netAmount,
+      notes: order.notes || "",
       items: order.items.reduce((sum: number, item: any) => sum + item.quantity, 0),
       itemsList: order.items.map((item: any) => ({
         id: item.id,
@@ -50,6 +56,7 @@ export default async function OrdersPage() {
       })),
       status: displayStatus,
       payment: paymentStatus,
+      paymentStatusRaw: order.paymentStatus,
       date: order.createdAt.toISOString().split("T")[0],
       provider: latestTx?.provider || (order.status === "pending_concierge" ? "concierge" : "stripe"),
       providerId: latestTx?.providerId || "",

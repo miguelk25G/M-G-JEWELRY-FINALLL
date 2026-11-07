@@ -434,35 +434,83 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
     } catch (stripeError: any) {
       console.error("[Stripe Checkout Error]", stripeError)
 
+      // If Stripe rejected with a client error (e.g. invalid parameter), no session was created.
+      // Release reserved inventory immediately so stock is not stranded.
+      if (stripeError?.type === "StripeInvalidRequestError" || stripeError?.statusCode === 400) {
+        await db.$transaction(async (tx: any) => {
+          await tx.order.updateMany({
+            where: { id: order.id, reservationStatus: "reserved" },
+            data: { reservationStatus: "released", paymentStatus: "failed", status: "cancelled", notes: "Fallo de creación de sesión en Stripe" },
+          })
+          for (const vi of verifiedItems) {
+            await tx.product.update({
+              where: { id: vi.product.id },
+              data: { inventoryQty: { increment: vi.quantity } },
+            })
+          }
+        }).catch(() => {})
+        return {
+          success: false,
+          error: "No se pudo generar la sesión de pago. Por favor verifica tus datos e intenta de nuevo.",
+        }
+      }
+
       // An ambiguous network failure may have created a payable session.
       // Retain its reservation for reconciliation instead of risking overselling.
       return {
         success: false,
-        error: "No se pudo confirmar la sesión. Contacta soporte antes de reintentar.",
+        error: "No se pudo confirmar la sesión con Stripe. Si tu pago no se realiza, la reserva expirará automáticamente.",
       }
     }
 
     // 5. Create initial pending Transaction record linked to order
-    await db.$transaction(async (tx: any) => {
-    await tx.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } })
-    await tx.transaction.create({
-      data: {
-        orderId: order.id,
-        provider: "stripe",
-        providerId: session.id,
-        status: "pending",
-        amount: pricing.total,
-        currency: "USD",
-        metadata: JSON.stringify({
-          sessionId: session.id,
-          orderNumber: order.orderNumber,
-          stripeUrl: session.url,
-          initiatedAt: new Date().toISOString(),
-        }),
-      },
-    })
+    try {
+      await db.$transaction(async (tx: any) => {
+        await tx.order.update({ where: { id: order.id }, data: { stripeSessionId: session.id } })
+        await tx.transaction.create({
+          data: {
+            orderId: order.id,
+            provider: "stripe",
+            providerId: session.id,
+            status: "pending",
+            amount: pricing.total,
+            currency: "USD",
+            metadata: JSON.stringify({
+              sessionId: session.id,
+              orderNumber: order.orderNumber,
+              stripeUrl: session.url,
+              initiatedAt: new Date().toISOString(),
+            }),
+          },
+        })
+      })
+    } catch (dbRegisterError: any) {
+      console.error("[Order Registration Error] Failed to link Stripe session to DB:", dbRegisterError)
+      // Attempt to immediately expire the newly created Stripe session to prevent stranded payments
+      try {
+        await getStripe().checkout.sessions.expire(session.id)
+      } catch (expireErr) {
+        console.error("Failed to expire dangling session:", expireErr)
+      }
+      // Release reserved stock so it doesn't remain locked
+      await db.$transaction(async (tx: any) => {
+        await tx.order.updateMany({
+          where: { id: order.id, reservationStatus: "reserved" },
+          data: { reservationStatus: "released", paymentStatus: "failed", status: "cancelled", notes: "Fallo de registro de transacción en base de datos" },
+        })
+        for (const vi of verifiedItems) {
+          await tx.product.update({
+            where: { id: vi.product.id },
+            data: { inventoryQty: { increment: vi.quantity } },
+          })
+        }
+      }).catch(() => {})
 
-    })
+      return {
+        success: false,
+        error: "No se pudo registrar la sesión de pago. Por favor intenta de nuevo.",
+      }
+    }
 
     return {
       success: true,

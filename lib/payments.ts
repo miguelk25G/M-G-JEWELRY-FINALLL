@@ -27,10 +27,12 @@ export function createPaymentService(db: any, stripe: any) {
       }
     }
   }
-  async function release(tx: any, order: any) {
+  async function release(tx: any, order: any, reason?: string) {
+    const data: any = { reservationStatus: 'released', paymentStatus: 'failed', status: 'cancelled' }
+    if (reason) data.notes = reason
     const changed = await tx.order.updateMany({
       where: { id: order.id, reservationStatus: 'reserved', paymentStatus: 'pending' },
-      data: { reservationStatus: 'released', paymentStatus: 'failed', status: 'cancelled' },
+      data,
     })
     if (!changed.count) return
     for (const item of order.items) {
@@ -38,7 +40,7 @@ export function createPaymentService(db: any, stripe: any) {
     }
     await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', status: 'pending' }, data: { status: 'failed' } })
   }
-  async function applySession(tx: any, session: any, releaseAllowed = false) {
+  async function applySession(tx: any, session: any, releaseAllowed = false, reason?: string) {
     const order = await tx.order.findUnique({ where: { stripeSessionId: session.id }, include: { items: true } })
     assertSession(order, session)
     const paid = session.payment_status === 'paid' || (session.payment_status === 'no_payment_required' && session.amount_total === 0)
@@ -51,7 +53,7 @@ export function createPaymentService(db: any, stripe: any) {
       })
       if (changed.count) await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', providerId: session.id }, data: { status: 'succeeded' } })
     } else if (releaseAllowed) {
-      await release(tx, order)
+      await release(tx, order, reason)
     }
   }
   async function processEvent(event: any) {
@@ -75,7 +77,10 @@ export function createPaymentService(db: any, stripe: any) {
         await tx.stripeEvent.create({ data: { id: event.id, type: event.type } })
         if (session) {
           const releaseAllowed = session.status === 'expired' || asyncFailed
-          await applySession(tx, session, releaseAllowed)
+          const reason = asyncFailed
+            ? 'Pago asíncrono fallido o rechazado'
+            : (session.status === 'expired' ? 'Sesión de Stripe expirada por inactividad' : undefined)
+          await applySession(tx, session, releaseAllowed, reason)
         } else if (charge) {
           const intentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id
           if (!intentId) throw new Error('Refund missing payment intent')
@@ -97,7 +102,7 @@ export function createPaymentService(db: any, stripe: any) {
   }
   async function reconcile(sessionId: string) {
     const session = await stripe.checkout.sessions.retrieve(sessionId)
-    await atomic(tx => applySession(tx, session, session.status === 'expired'))
+    await atomic(tx => applySession(tx, session, session.status === 'expired', 'Cancelación voluntaria por el cliente'))
   }
   async function cancel(sessionId: string) {
     const order = await db.order.findUnique({ where: { stripeSessionId: sessionId } })
@@ -107,7 +112,7 @@ export function createPaymentService(db: any, stripe: any) {
       try { session = await stripe.checkout.sessions.expire(sessionId) }
       catch { session = await stripe.checkout.sessions.retrieve(sessionId) }
     }
-    await atomic(tx => applySession(tx, session, session.status === 'expired'))
+    await atomic(tx => applySession(tx, session, session.status === 'expired', 'Cancelación voluntaria por el cliente'))
     if (session.status !== 'expired') throw new Error('Payment completed or still processing. Reservation retained.')
   }
   return { processEvent, reconcile, cancel }

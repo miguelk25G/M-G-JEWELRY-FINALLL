@@ -21,6 +21,10 @@ export async function updateOrderStatus(orderId: string, status: string) {
       return { success: false, error: "Order not found." }
     }
 
+    if (order.paymentStatus === "refunded" && ["processing", "shipped", "completed", "delivered"].includes(status)) {
+      throw new Error("No se puede despachar un pedido que ha sido totalmente reembolsado (Pago: Reembolsado).")
+    }
+
     if (order.stripeSessionId) {
       if (status === "cancelled") {
         await createPaymentService(db, getStripe()).cancel(order.stripeSessionId)

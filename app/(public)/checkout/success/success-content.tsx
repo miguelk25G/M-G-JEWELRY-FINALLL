@@ -177,17 +177,22 @@ export function CheckoutSuccessContent({
 
             <div className="rounded-lg border border-border p-4">
               <h3 className="font-semibold text-foreground mb-1">
-                {locale === 'es' ? "Confirmación y Rastreo" : "Confirmation & Tracking"}
+                {locale === 'es' ? "Contacto del Pedido" : "Order Contact"}
               </h3>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground text-xs sm:text-sm">
                 {locale === 'es'
-                  ? `Se ha enviado el recibo de pago y la confirmación a:`
-                  : `Payment receipt and logistics dispatch details sent to:`}
+                  ? `Correo registrado para notificaciones y seguimiento:`
+                  : `Registered email for order tracking and concierge inquiries:`}
               </p>
               <p className="font-medium text-foreground mt-1">{order.email}</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                {locale === 'es'
+                  ? "Conserva tu número de orden para cualquier consulta sobre tu adquisición."
+                  : "Please keep your order number for reference with our concierge team."}
+              </p>
               <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600">
                 <ShieldCheck className="h-4 w-4" />
-                <span>{locale === 'es' ? "Envío 100% asegurado" : "100% Insured Delivery"}</span>
+                <span>{locale === 'es' ? "Envío asegurado en preparación" : "Insured delivery in preparation"}</span>
               </div>
             </div>
           </div>

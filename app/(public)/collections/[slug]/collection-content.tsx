@@ -46,6 +46,7 @@ interface CollectionContentProps {
     descriptionEs: string
   }
   products: Product[]
+  locale?: string
 }
 
 const categories = ['all', 'rings', 'chains', 'bracelets', 'earrings', 'necklaces']
