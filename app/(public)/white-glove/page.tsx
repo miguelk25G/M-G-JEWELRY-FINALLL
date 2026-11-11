@@ -51,6 +51,7 @@ export default function WhiteGlovePage() {
     submissionId: string
     preferredContact: string
     contactDisplay: string
+    customerEmailStatus?: string
     submittedAt: string
   } | null>(null)
 
@@ -249,6 +250,7 @@ export default function WhiteGlovePage() {
 
       setSubmissionReceipt({
         submissionId: res.submissionId,
+        customerEmailStatus: res.customerEmailStatus,
         preferredContact: res.preferredContact || selectedMethod,
         contactDisplay: res.contactDisplay || trimmedContact,
         submittedAt: res.submittedAt || new Date().toISOString(),
@@ -313,8 +315,8 @@ export default function WhiteGlovePage() {
             {isEmailContact && (
               <p className="text-xs text-muted-foreground pt-2 border-t border-border/40">
                 {locale === 'es'
-                  ? `Hemos registrado tu correo electrónico (${submissionReceipt.contactDisplay}) y enviado una confirmación con el resumen de tu solicitud.`
-                  : `We have recorded your email (${submissionReceipt.contactDisplay}) and sent a confirmation with your request details.`}
+                  ? (submissionReceipt.customerEmailStatus === 'sent' ? 'Tu solicitud está guardada. La confirmación fue aceptada por el servidor de correo; revisa también Spam.' : 'Tu solicitud está guardada, pero no pudimos confirmar el envío del correo. No necesitas enviarla de nuevo.')
+                  : (submissionReceipt.customerEmailStatus === 'sent' ? 'Your request is saved. The email server accepted your confirmation; please also check Spam.' : 'Your request is saved, but email sending could not be confirmed. You do not need to submit again.')}
               </p>
             )}
             {isInstagramContact && (

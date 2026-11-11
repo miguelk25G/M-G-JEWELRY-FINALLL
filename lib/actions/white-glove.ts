@@ -50,6 +50,7 @@ export async function submitWhiteGloveQuizAction(
       preferredContact: result.request.preferredContact,
       contactDisplay: result.request.contactDisplay,
       submittedAt: result.request.createdAt,
+      customerEmailStatus: result.request.notifications.customerEmail.status,
     }
   } catch (error: any) {
     console.error("[WhiteGlove] Submission failed:", error?.message || "Unknown error")

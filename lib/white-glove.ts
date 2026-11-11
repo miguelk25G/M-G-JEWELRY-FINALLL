@@ -716,7 +716,7 @@ export function createWhiteGloveService(
       const saved = await db.quizSubmission.updateMany({
         where: { id: submissionId, answers: claimed }, data: { answers: JSON.stringify(stored) },
       })
-      console.info("[WhiteGlove] notification", { submissionId, channel, status: state.status, attempts: state.attempts })
+      console.info("[WhiteGlove] notification", { submissionId, channel, status: state.status, attempts: state.attempts, diagnostic: state.error })
       if (saved.count !== 1) throw new Error("Notification outcome needs review; do not resend automatically.")
     }
     const final = await db.quizSubmission.findUnique({ where: { id: submissionId } })
