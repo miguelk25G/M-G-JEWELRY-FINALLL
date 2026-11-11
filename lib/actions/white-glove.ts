@@ -69,6 +69,9 @@ export async function updateWhiteGloveStatusAction(input: {
   id: string
   status: WhiteGloveStatus
   adminNotes?: string
+  orderId?: string
+  channel?: import("@/lib/white-glove-shared").WhiteGloveContactMethod
+  note?: string
 }) {
   try {
     await requireAdminSession()
@@ -76,7 +79,8 @@ export async function updateWhiteGloveStatusAction(input: {
     const updated = await service.updateRequestStatus(
       input.id,
       input.status,
-      input.adminNotes
+      input.adminNotes,
+      { orderId: input.orderId, channel: input.channel, note: input.note }
     )
     revalidateWhiteGloveAdminPaths()
     return {

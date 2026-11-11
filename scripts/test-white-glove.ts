@@ -48,6 +48,12 @@ function createMockQuizDb() {
         const found = rows.find((r) => r.id === where.id)
         return found ? structuredClone(found) : null
       },
+      updateMany: async ({ where, data }: any) => {
+        const row = rows.find(r => r.id === where.id && r.answers === where.answers)
+        if (!row) return { count: 0 }
+        Object.assign(row, data)
+        return { count: 1 }
+      },
       update: async ({ where, data }: any) => {
         const idx = rows.findIndex((r) => r.id === where.id)
         if (idx === -1) throw new Error("QuizSubmission not found")
@@ -283,7 +289,7 @@ test("Test C — Persistence, status workflow, search/filter/sort, email failure
     "failed",
     "Failed business email must be recorded"
   )
-  assert.match(sub1.request.notifications.adminEmail.error || "", /SMTP connection timeout/)
+  assert.match(sub1.request.notifications.adminEmail.error || "", /Email sending failed/)
   assert.equal(
     sub1.request.notifications.customerEmail.status,
     "sent",
@@ -368,4 +374,32 @@ test("Test C — Persistence, status workflow, search/filter/sort, email failure
     () => validateAdminRole({ user: { email: "user@test.com", role: "customer" } }),
     /Forbidden/
   )
+})
+
+
+test("Concurrent retries claim each recipient once and retain tracking", async () => {
+  resetSubmissionRateLimitForTests()
+  const db = createMockQuizDb()
+  const initial = createWhiteGloveService(db, async () => ({ sent: false, skippedReason: "not configured" }))
+  const result = await initial.submitQuiz({ answers: SAMPLE_ANSWERS, preferredContactMethod: "Email", contactValue: "concurrent@example.com", idempotencyKey: "concurrent-retry-test" })
+  let calls = 0
+  const retry = createWhiteGloveService(db, async () => { calls++; await new Promise(r => setTimeout(r, 5)); return { sent: true, messageId: "accepted" } })
+  await Promise.all([retry.retryNotifications(result.submissionId), retry.retryNotifications(result.submissionId)])
+  assert.equal(calls, 2)
+  await assert.rejects(() => retry.updateRequestStatus(result.submissionId, "Paid"), /Link a real order/)
+  const updated = await retry.updateRequestStatus(result.submissionId, "Quoted", "Quote prepared", { channel: "Instagram", note: "Client asked for a quote" })
+  assert.equal(updated.contactHistory?.[0].channel, "Instagram")
+  assert.equal(JSON.parse(db._rows[0].answers).idempotencyKey, "concurrent-retry-test")
+})
+
+test("Ambiguous SMTP outcomes never automatically resend", async () => {
+  resetSubmissionRateLimitForTests()
+  const db = createMockQuizDb()
+  let calls = 0
+  const service = createWhiteGloveService(db, async () => { calls++; throw Object.assign(new Error("secret must not leak"), { code: "ETIMEDOUT" }) })
+  const saved = await service.submitQuiz({ answers: SAMPLE_ANSWERS, preferredContactMethod: "Instagram", contactValue: "test.client", idempotencyKey: "uncertain-test" })
+  assert.equal(saved.request.notifications.adminEmail.status, "uncertain")
+  assert.doesNotMatch(saved.request.notifications.adminEmail.error || "", /secret/)
+  await service.retryNotifications(saved.submissionId)
+  assert.equal(calls, 1)
 })

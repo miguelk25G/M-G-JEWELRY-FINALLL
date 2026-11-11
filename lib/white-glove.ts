@@ -11,139 +11,11 @@
  * - Admin Dashboard query, search, filter, sort, badge count, and status workflow
  */
 
-import nodemailer from "nodemailer"
+// SMTP is loaded only when sending on the server.
 import { BrandConfig } from "@/lib/config/brand"
 
-export const WHITE_GLOVE_SCHEMA_VERSION = 2
-
-export const WHITE_GLOVE_STATUSES = [
-  "New",
-  "Contacted",
-  "In Progress",
-  "Completed",
-  "Closed",
-] as const
-
-export type WhiteGloveStatus = (typeof WHITE_GLOVE_STATUSES)[number]
-
-export type WhiteGloveContactMethod =
-  | "Email"
-  | "Instagram"
-  | "WhatsApp"
-  | "Phone Text"
-
-export interface WhiteGloveQuestionAnswer {
-  id: string
-  questionNumber: number
-  questionEn: string
-  questionEs?: string
-  answer: string
-  isConditional?: boolean
-}
-
-export interface WhiteGloveNotificationRecord {
-  status: "pending" | "sent" | "failed" | "skipped_unconfigured" | "skipped_not_applicable"
-  recipient?: string
-  sentAt?: string
-  error?: string
-  attempts: number
-  messageId?: string
-}
-
-export interface WhiteGloveStoredPayload {
-  schemaVersion: number
-  submissionId?: string
-  submittedAt: string
-  updatedAt: string
-  status: WhiteGloveStatus
-  locale: string
-  idempotencyKey?: string
-  contact: {
-    method: WhiteGloveContactMethod
-    rawInput: string
-    displayValue: string
-    email?: string
-    instagramHandle?: string
-    instagramUrl?: string
-    phone?: string
-  }
-  questionsAndAnswers: WhiteGloveQuestionAnswer[]
-  rawAnswers: Record<string, string>
-  preferences: {
-    recipient?: string
-    budget?: string
-    pieceType?: string
-    style?: string
-    metal?: string
-    usage?: string
-    wearsWatch?: string
-    sizing?: string
-    deadline?: string
-    stonePreference?: string
-  }
-  additionalInfo?: string
-  adminNotes?: string
-  notifications: {
-    adminEmail: WhiteGloveNotificationRecord
-    customerEmail: WhiteGloveNotificationRecord
-  }
-  statusHistory: Array<{
-    status: WhiteGloveStatus
-    changedAt: string
-    note?: string
-  }>
-}
-
-export interface WhiteGloveAdminRequest {
-  id: string
-  createdAt: string
-  updatedAt: string
-  status: WhiteGloveStatus
-  locale: string
-  preferredContact: WhiteGloveContactMethod
-  contactDisplay: string
-  email: string | null
-  instagramHandle: string | null
-  instagramUrl: string | null
-  phone: string | null
-  mailtoHref: string | null
-  questionsAndAnswers: WhiteGloveQuestionAnswer[]
-  rawAnswers: Record<string, string>
-  preferences: WhiteGloveStoredPayload["preferences"]
-  additionalInfo: string
-  adminNotes: string
-  notifications: WhiteGloveStoredPayload["notifications"]
-  statusHistory: WhiteGloveStoredPayload["statusHistory"]
-}
-
-export interface SubmitWhiteGloveInput {
-  answers: Record<string, string>
-  questions?: Array<{
-    id: string
-    label_en: string
-    label_es?: string
-    isConditional?: boolean
-  }>
-  preferredContactMethod: string
-  contactValue: string
-  phonePrefix?: string
-  additionalInfo?: string
-  locale?: string
-  idempotencyKey?: string
-  clientIp?: string
-}
-
-export interface EmailMessagePayload {
-  to: string
-  subject: string
-  html: string
-  text: string
-  replyTo?: string
-}
-
-export type MailTransportSender = (
-  msg: EmailMessagePayload
-) => Promise<{ sent: boolean; messageId?: string; skippedReason?: string }>
+import { WHITE_GLOVE_SCHEMA_VERSION, WHITE_GLOVE_STATUSES, WhiteGloveStatus, WhiteGloveContactMethod, WhiteGloveQuestionAnswer, WhiteGloveNotificationRecord, WhiteGloveStoredPayload, WhiteGloveAdminRequest, SubmitWhiteGloveInput, EmailMessagePayload, MailTransportSender } from "./white-glove-shared"
+export * from "./white-glove-shared"
 
 // Default catalog of standard quiz questions for fallback reconstruction of legacy records
 export const DEFAULT_QUIZ_QUESTIONS: Array<{
@@ -544,6 +416,7 @@ export const defaultMailSender: MailTransportSender = async (msg) => {
   if (process.env.RESEND_API_KEY) {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
@@ -559,8 +432,8 @@ export const defaultMailSender: MailTransportSender = async (msg) => {
     })
 
     if (!response.ok) {
-      const errBody = await response.text().catch(() => "")
-      throw new Error(`Resend API error (${response.status}): ${errBody.slice(0, 200)}`)
+      await response.text().catch(() => "")
+      throw new Error(`Email provider rejected request (${response.status})`)
     }
     const data: any = await response.json().catch(() => ({}))
     return { sent: true, messageId: data?.id || "resend_ok" }
@@ -573,7 +446,11 @@ export const defaultMailSender: MailTransportSender = async (msg) => {
       ? process.env.SMTP_SECURE === "true"
       : port === 465
 
+    const { default: nodemailer } = await import("nodemailer")
     const transporter = nodemailer.createTransport({
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port,
       secure,
@@ -592,6 +469,7 @@ export const defaultMailSender: MailTransportSender = async (msg) => {
       ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
     })
 
+    if (!info.accepted?.length) throw new Error("SMTP recipient rejected")
     return { sent: true, messageId: info.messageId || "smtp_ok" }
   }
 
@@ -658,6 +536,8 @@ export function parseQuizSubmissionRecord(record: {
       preferences: payload.preferences || {},
       additionalInfo: payload.additionalInfo || "",
       adminNotes: payload.adminNotes || "",
+      linkedOrderId: payload.linkedOrderId,
+      contactHistory: payload.contactHistory || [],
       notifications: payload.notifications || {
         adminEmail: { status: "pending", attempts: 0 },
         customerEmail: { status: "pending", attempts: 0 },
@@ -796,109 +676,51 @@ export function createWhiteGloveService(
     submissionId: string,
     payload: WhiteGloveStoredPayload
   ): Promise<WhiteGloveAdminRequest> {
-    let siteSettingsEmail: string | null = null
-    try {
-      if (db.siteSettings && typeof db.siteSettings.findUnique === "function") {
-        const settings = await db.siteSettings.findUnique({ where: { id: "main" } })
-        siteSettingsEmail = settings?.contactEmail || null
-      }
-    } catch {
-      siteSettingsEmail = null
-    }
-
-    const adminRecipient = getBusinessNotificationEmail(siteSettingsEmail)
-    const nowIso = new Date().toISOString()
-
-    // Reconstruct admin request view for email templates
-    const currentView = parseQuizSubmissionRecord({
-      id: submissionId,
-      answers: JSON.stringify(payload),
-      preferredContact: `${payload.contact.method}: ${payload.contact.displayValue}`,
-      createdAt: payload.submittedAt,
-    })
-
-    // 1. Business Notification Email (always triggered if not already sent)
-    if (payload.notifications.adminEmail.status !== "sent") {
-      payload.notifications.adminEmail.attempts =
-        (payload.notifications.adminEmail.attempts || 0) + 1
-      payload.notifications.adminEmail.recipient = adminRecipient
-
+    // Claim each recipient atomically. Ambiguous attempts require manual provider review.
+    for (const channel of ["adminEmail", "customerEmail"] as const) {
+      const row = await db.quizSubmission.findUnique({ where: { id: submissionId } })
+      if (!row) throw new Error("Saved request not found")
+      let stored: WhiteGloveStoredPayload
+      try { stored = JSON.parse(row.answers) } catch { stored = payload }
+      if (!stored.contact) stored = payload
+      if (Object.values(stored.notifications).some(n => n.status === "sending")) return parseQuizSubmissionRecord(row)
+      const state = stored.notifications[channel]
+      if (["sent", "sending", "uncertain", "skipped_not_applicable"].includes(state.status)) continue
+      const view = parseQuizSubmissionRecord(row)
+      const recipient = channel === "adminEmail" ? getBusinessNotificationEmail() : stored.contact.email
+      if (!recipient) continue
+      state.status = "sending"
+      state.attempts = (state.attempts || 0) + 1
+      state.recipient = recipient
+      const claimed = JSON.stringify(stored)
+      const claim = await db.quizSubmission.updateMany({
+        where: { id: submissionId, answers: row.answers }, data: { answers: claimed },
+      })
+      if (claim.count !== 1) continue
       try {
-        const adminMail = buildBusinessNotificationEmail(currentView)
-        const res = await mailSender({
-          to: adminRecipient,
-          subject: adminMail.subject,
-          html: adminMail.html,
-          text: adminMail.text,
-          replyTo: payload.contact.email || undefined,
-        })
-
-        if (res.sent) {
-          payload.notifications.adminEmail.status = "sent"
-          payload.notifications.adminEmail.sentAt = nowIso
-          payload.notifications.adminEmail.messageId = res.messageId
-          delete payload.notifications.adminEmail.error
-        } else {
-          payload.notifications.adminEmail.status = "skipped_unconfigured"
-          payload.notifications.adminEmail.error = res.skippedReason
-        }
-      } catch (err: any) {
-        payload.notifications.adminEmail.status = "failed"
-        payload.notifications.adminEmail.error = sanitizeText(
-          err?.message || "Failed to send business notification email",
-          300
-        )
+        const message = channel === "adminEmail" ? buildBusinessNotificationEmail(view) : buildCustomerConfirmationEmail(view)
+        const result = await mailSender({ ...message, to: recipient,
+          ...(channel === "adminEmail" && stored.contact.email ? { replyTo: stored.contact.email } : {}) })
+        state.status = result.sent ? "sent" : "skipped_unconfigured"
+        state.messageId = result.messageId
+        state.sentAt = result.sent ? new Date().toISOString() : undefined
+        state.error = result.sent ? undefined : result.skippedReason
+      } catch (error: any) {
+        const code = String(error?.code || "")
+        state.status = ["ETIMEDOUT", "ESOCKET", "ECONNECTION"].includes(code) ? "uncertain" : "failed"
+        state.error = ["EAUTH", "EENVELOPE", "ETIMEDOUT", "ESOCKET", "ECONNECTION"].includes(code)
+          ? "Email transport failed (" + code + "). Check provider configuration."
+          : "Email sending failed. Check provider logs."
       }
+      stored.updatedAt = new Date().toISOString()
+      const saved = await db.quizSubmission.updateMany({
+        where: { id: submissionId, answers: claimed }, data: { answers: JSON.stringify(stored) },
+      })
+      console.info("[WhiteGlove] notification", { submissionId, channel, status: state.status, attempts: state.attempts })
+      if (saved.count !== 1) throw new Error("Notification outcome needs review; do not resend automatically.")
     }
-
-    // 2. Customer Confirmation Email (only when customer provided an email address)
-    if (payload.contact.email) {
-      if (payload.notifications.customerEmail.status !== "sent") {
-        payload.notifications.customerEmail.attempts =
-          (payload.notifications.customerEmail.attempts || 0) + 1
-        payload.notifications.customerEmail.recipient = payload.contact.email
-
-        try {
-          const customerMail = buildCustomerConfirmationEmail(currentView)
-          const res = await mailSender({
-            to: payload.contact.email,
-            subject: customerMail.subject,
-            html: customerMail.html,
-            text: customerMail.text,
-          })
-
-          if (res.sent) {
-            payload.notifications.customerEmail.status = "sent"
-            payload.notifications.customerEmail.sentAt = nowIso
-            payload.notifications.customerEmail.messageId = res.messageId
-            delete payload.notifications.customerEmail.error
-          } else {
-            payload.notifications.customerEmail.status = "skipped_unconfigured"
-            payload.notifications.customerEmail.error = res.skippedReason
-          }
-        } catch (err: any) {
-          payload.notifications.customerEmail.status = "failed"
-          payload.notifications.customerEmail.error = sanitizeText(
-            err?.message || "Failed to send customer confirmation email",
-            300
-          )
-        }
-      }
-    } else {
-      payload.notifications.customerEmail.status = "skipped_not_applicable"
-    }
-
-    payload.updatedAt = new Date().toISOString()
-
-    // Persist updated notification statuses back to QuizSubmission
-    const updatedRow = await db.quizSubmission.update({
-      where: { id: submissionId },
-      data: {
-        answers: JSON.stringify(payload),
-      },
-    })
-
-    return parseQuizSubmissionRecord(updatedRow)
+    const final = await db.quizSubmission.findUnique({ where: { id: submissionId } })
+    return parseQuizSubmissionRecord(final)
   }
 
   /**
@@ -1121,7 +943,9 @@ export function createWhiteGloveService(
     payload.submissionId = created.id
 
     // 2. Dispatch business & customer emails (never loses the saved record if email fails)
-    const finalRequest = await dispatchNotifications(created.id, payload)
+    let finalRequest = parseQuizSubmissionRecord(created)
+    try { finalRequest = await dispatchNotifications(created.id, payload) }
+    catch { console.error("[WhiteGlove] Request saved; notification outcome requires review", { submissionId: created.id }) }
 
     return {
       success: true,
@@ -1200,7 +1024,8 @@ export function createWhiteGloveService(
   async function updateRequestStatus(
     id: string,
     newStatus: WhiteGloveStatus,
-    adminNotes?: string
+    adminNotes?: string,
+    tracking?: { orderId?: string; channel?: WhiteGloveContactMethod; note?: string }
   ): Promise<WhiteGloveAdminRequest> {
     if (!id) {
       throw new Error("Request ID is required.")
@@ -1218,6 +1043,16 @@ export function createWhiteGloveService(
 
     const current = parseQuizSubmissionRecord(row)
     const nowIso = new Date().toISOString()
+    if (Object.values(current.notifications).some(n => n.status === "sending")) throw new Error("Email attempt needs completion or review before editing.")
+    const orderId = sanitizeText(tracking?.orderId ?? current.linkedOrderId, 100)
+    const orderStage = ["Paid", "In Production", "Shipped"].includes(newStatus)
+    if (orderStage && !orderId) throw new Error("Link a real order before selecting this order stage.")
+    if (orderId) {
+      const order = await db.order.findUnique({ where: { id: orderId } })
+      if (!order) throw new Error("Order not found. Use the actual order ID.")
+      if (orderStage && order.paymentStatus !== "paid") throw new Error("The linked order has no confirmed payment.")
+    }
+    if (tracking?.channel && !["Email", "Instagram", "WhatsApp", "Phone Text"].includes(tracking.channel)) throw new Error("Invalid channel.")
 
     const nextPayload: WhiteGloveStoredPayload = {
       schemaVersion: WHITE_GLOVE_SCHEMA_VERSION,
@@ -1247,6 +1082,8 @@ export function createWhiteGloveService(
         adminNotes !== undefined
           ? sanitizeText(adminNotes, 2000)
           : current.adminNotes,
+      linkedOrderId: current.linkedOrderId,
+      contactHistory: current.contactHistory,
       notifications: current.notifications,
       statusHistory: [
         ...current.statusHistory,
@@ -1256,12 +1093,18 @@ export function createWhiteGloveService(
       ],
     }
 
-    const updated = await db.quizSubmission.update({
-      where: { id },
-      data: {
-        answers: JSON.stringify(nextPayload),
-      },
+    nextPayload.linkedOrderId = orderId || undefined
+    nextPayload.contactHistory = [...(current.contactHistory || []), ...(tracking?.note?.trim() ? [{
+      channel: tracking.channel || current.preferredContact,
+      note: sanitizeText(tracking.note, 2000), recordedAt: nowIso,
+    }] : [])]
+    const original = JSON.parse(row.answers)
+    const result = await db.quizSubmission.updateMany({
+      where: { id, answers: row.answers },
+      data: { answers: JSON.stringify({ ...original, ...nextPayload }) },
     })
+    if (result.count !== 1) throw new Error("Request changed. Refresh before saving again.")
+    const updated = await db.quizSubmission.findUnique({ where: { id } })
 
     return parseQuizSubmissionRecord(updated)
   }
@@ -1302,6 +1145,8 @@ export function createWhiteGloveService(
       preferences: current.preferences,
       ...(current.additionalInfo ? { additionalInfo: current.additionalInfo } : {}),
       ...(current.adminNotes ? { adminNotes: current.adminNotes } : {}),
+      linkedOrderId: current.linkedOrderId,
+      contactHistory: current.contactHistory,
       notifications: current.notifications,
       statusHistory: current.statusHistory,
     }
