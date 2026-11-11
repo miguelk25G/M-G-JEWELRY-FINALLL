@@ -15,6 +15,7 @@ import nodemailer from "nodemailer"
 import { BrandConfig } from "@/lib/config/brand"
 
 export const WHITE_GLOVE_SCHEMA_VERSION = 2
+export const OFFICIAL_ADMIN_NOTIFICATION_EMAIL = "mngjewerly25k@gmail.com"
 
 export const WHITE_GLOVE_STATUSES = [
   "New",
@@ -304,16 +305,70 @@ export function normalizeContactMethod(raw: string | null | undefined): WhiteGlo
 }
 
 /**
- * Resolves the business notification recipient email address from environment variables or BrandConfig.
+ * Resolves the business notification recipient email address.
+ * Always uses process.env.ADMIN_NOTIFICATION_EMAIL when set, defaulting to
+ * the official business administrator email: mngjewerly25k@gmail.com.
  */
-export function getBusinessNotificationEmail(siteSettingsEmail?: string | null): string {
-  return (
-    process.env.ADMIN_NOTIFICATION_EMAIL?.trim() ||
-    process.env.ADMIN_EMAIL?.trim() ||
-    siteSettingsEmail?.trim() ||
-    BrandConfig.CONTACT.supportEmail ||
-    "mngjewerly25k@gmail.com"
+export function getBusinessNotificationEmail(): string {
+  const envRecipient = process.env.ADMIN_NOTIFICATION_EMAIL?.trim()
+  if (envRecipient) {
+    return envRecipient
+  }
+  return OFFICIAL_ADMIN_NOTIFICATION_EMAIL
+}
+
+export interface EmailDeliveryConfigStatus {
+  adminNotificationEmail: string
+  hasExplicitAdminNotificationEnv: boolean
+  activeTransport: "smtp" | "resend" | "unconfigured"
+  reusesVipGmailSmtp: boolean
+  smtpHost: string
+  smtpPort: number
+  hasSmtpUser: boolean
+  hasSmtpPass: boolean
+  hasResendApiKey: boolean
+  missingVariables: string[]
+}
+
+/**
+ * Inspects which email environment variables are configured without exposing credentials.
+ * Confirms compatibility with the existing VIP Waitlist Gmail SMTP setup (SMTP_USER / SMTP_PASS).
+ */
+export function getEmailDeliveryConfigStatus(): EmailDeliveryConfigStatus {
+  const hasExplicitAdminNotificationEnv = Boolean(
+    process.env.ADMIN_NOTIFICATION_EMAIL?.trim()
   )
+  const hasSmtpUser = Boolean(process.env.SMTP_USER?.trim())
+  const hasSmtpPass = Boolean(process.env.SMTP_PASS?.trim())
+  const hasResendApiKey = Boolean(process.env.RESEND_API_KEY?.trim())
+
+  const activeTransport: "smtp" | "resend" | "unconfigured" = hasResendApiKey
+    ? "resend"
+    : hasSmtpUser && hasSmtpPass
+      ? "smtp"
+      : "unconfigured"
+
+  const missingVariables: string[] = []
+  if (!hasExplicitAdminNotificationEnv) {
+    missingVariables.push("ADMIN_NOTIFICATION_EMAIL")
+  }
+  if (activeTransport === "unconfigured") {
+    if (!hasSmtpUser) missingVariables.push("SMTP_USER")
+    if (!hasSmtpPass) missingVariables.push("SMTP_PASS")
+  }
+
+  return {
+    adminNotificationEmail: getBusinessNotificationEmail(),
+    hasExplicitAdminNotificationEnv,
+    activeTransport,
+    reusesVipGmailSmtp: true,
+    smtpHost: process.env.SMTP_HOST?.trim() || "smtp.gmail.com",
+    smtpPort: parseInt(process.env.SMTP_PORT || "465", 10),
+    hasSmtpUser,
+    hasSmtpPass,
+    hasResendApiKey,
+    missingVariables,
+  }
 }
 
 /**
@@ -534,73 +589,85 @@ export function buildCustomerConfirmationEmail(
  * 1. Resend HTTP API (if RESEND_API_KEY is configured)
  * 2. Nodemailer SMTP (if SMTP_USER & SMTP_PASS are configured, matching lib/actions/vip.ts)
  */
-export const defaultMailSender: MailTransportSender = async (msg) => {
-  const fromAddress =
-    process.env.EMAIL_FROM ||
-    process.env.SMTP_FROM ||
-    (process.env.SMTP_USER ? `"M&G Jewelry" <${process.env.SMTP_USER}>` : `"M&G Jewelry" <noreply@mngjewelry.com>`)
+/**
+ * Creates a server-side mail sender using either:
+ * 1. Resend HTTP API (if RESEND_API_KEY is configured)
+ * 2. Nodemailer Gmail SMTP (if SMTP_USER & SMTP_PASS are configured, matching lib/actions/vip.ts)
+ */
+export function createMailSender(
+  createTransporter: typeof nodemailer.createTransport = nodemailer.createTransport
+): MailTransportSender {
+  return async (msg) => {
+    const smtpUser = process.env.SMTP_USER?.trim() || getBusinessNotificationEmail()
+    const fromAddress =
+      process.env.EMAIL_FROM ||
+      process.env.SMTP_FROM ||
+      `"M&G Jewelry" <${smtpUser}>`
 
-  // Option 1: Resend API if configured
-  if (process.env.RESEND_API_KEY) {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    // Option 1: Resend API if configured
+    if (process.env.RESEND_API_KEY) {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromAddress,
+          to: [msg.to],
+          subject: msg.subject,
+          html: msg.html,
+          text: msg.text,
+          ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
+        }),
+      })
+
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => "")
+        throw new Error(`Resend API error (${response.status}): ${errBody.slice(0, 200)}`)
+      }
+      const data: any = await response.json().catch(() => ({}))
+      return { sent: true, messageId: data?.id || "resend_ok" }
+    }
+
+    // Option 2: Nodemailer Gmail SMTP (reuses the exact VIP Waitlist SMTP configuration)
+    if (smtpUser && process.env.SMTP_PASS) {
+      const port = parseInt(process.env.SMTP_PORT || "465", 10)
+      const secure = process.env.SMTP_SECURE
+        ? process.env.SMTP_SECURE === "true"
+        : port === 465
+
+      const transporter = createTransporter({
+        host: process.env.SMTP_HOST || "smtp.gmail.com",
+        port,
+        secure,
+        auth: {
+          user: smtpUser,
+          pass: process.env.SMTP_PASS,
+        },
+      })
+
+      const info = await transporter.sendMail({
         from: fromAddress,
-        to: [msg.to],
+        to: msg.to,
         subject: msg.subject,
         html: msg.html,
         text: msg.text,
-        ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
-      }),
-    })
+        ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+      })
 
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => "")
-      throw new Error(`Resend API error (${response.status}): ${errBody.slice(0, 200)}`)
+      return { sent: true, messageId: info.messageId || "smtp_ok" }
     }
-    const data: any = await response.json().catch(() => ({}))
-    return { sent: true, messageId: data?.id || "resend_ok" }
-  }
 
-  // Option 2: Nodemailer SMTP if configured
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-    const port = parseInt(process.env.SMTP_PORT || "465", 10)
-    const secure = process.env.SMTP_SECURE
-      ? process.env.SMTP_SECURE === "true"
-      : port === 465
-
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port,
-      secure,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-
-    const info = await transporter.sendMail({
-      from: fromAddress,
-      to: msg.to,
-      subject: msg.subject,
-      html: msg.html,
-      text: msg.text,
-      ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-    })
-
-    return { sent: true, messageId: info.messageId || "smtp_ok" }
-  }
-
-  return {
-    sent: false,
-    skippedReason:
-      "Email transport credentials are not configured (set SMTP_USER & SMTP_PASS or RESEND_API_KEY).",
+    return {
+      sent: false,
+      skippedReason:
+        "Email transport credentials are not configured (set SMTP_USER & SMTP_PASS or RESEND_API_KEY).",
+    }
   }
 }
+
+export const defaultMailSender: MailTransportSender = createMailSender()
 
 /**
  * Parses a raw QuizSubmission database row (both v2 structured JSON and v1 legacy JSON)
@@ -796,17 +863,7 @@ export function createWhiteGloveService(
     submissionId: string,
     payload: WhiteGloveStoredPayload
   ): Promise<WhiteGloveAdminRequest> {
-    let siteSettingsEmail: string | null = null
-    try {
-      if (db.siteSettings && typeof db.siteSettings.findUnique === "function") {
-        const settings = await db.siteSettings.findUnique({ where: { id: "main" } })
-        siteSettingsEmail = settings?.contactEmail || null
-      }
-    } catch {
-      siteSettingsEmail = null
-    }
-
-    const adminRecipient = getBusinessNotificationEmail(siteSettingsEmail)
+    const adminRecipient = getBusinessNotificationEmail()
     const nowIso = new Date().toISOString()
 
     // Reconstruct admin request view for email templates

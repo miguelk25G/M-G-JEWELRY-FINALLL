@@ -57,6 +57,7 @@ import {
   WHITE_GLOVE_STATUSES,
   type WhiteGloveAdminRequest,
   type WhiteGloveStatus,
+  type EmailDeliveryConfigStatus,
 } from "@/lib/white-glove"
 import {
   updateWhiteGloveStatusAction,
@@ -99,10 +100,12 @@ export function WhiteGloveClient({
   initialRequests,
   initialNewCount,
   initialSelectedId,
+  emailConfigStatus,
 }: {
   initialRequests: WhiteGloveAdminRequest[]
   initialNewCount: number
   initialSelectedId?: string | null
+  emailConfigStatus?: EmailDeliveryConfigStatus
 }) {
   const router = useRouter()
   const [requests, setRequests] = useState<WhiteGloveAdminRequest[]>(initialRequests)
@@ -278,6 +281,30 @@ export function WhiteGloveClient({
             Review and manage customer submissions from the White-Glove Quiz.
           </p>
         </div>
+
+        {emailConfigStatus && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs">
+            <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-muted-foreground">Notifications to:</span>
+            <span className="font-mono font-medium text-foreground">
+              {emailConfigStatus.adminNotificationEmail}
+            </span>
+            <Badge
+              variant="outline"
+              className={
+                emailConfigStatus.activeTransport !== "unconfigured"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[11px]"
+                  : "bg-amber-500/15 text-amber-400 border-amber-500/30 text-[11px]"
+              }
+            >
+              {emailConfigStatus.activeTransport === "smtp"
+                ? "Gmail SMTP Active"
+                : emailConfigStatus.activeTransport === "resend"
+                  ? "Resend API Active"
+                  : "SMTP Credentials Pending"}
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* KPI Summary Cards */}

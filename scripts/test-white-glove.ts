@@ -1,10 +1,15 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import nodemailer from "nodemailer"
 import {
   createWhiteGloveService,
+  createMailSender,
   validateAndNormalizeEmail,
   validateAndNormalizeInstagram,
   resetSubmissionRateLimitForTests,
+  getBusinessNotificationEmail,
+  getEmailDeliveryConfigStatus,
+  OFFICIAL_ADMIN_NOTIFICATION_EMAIL,
   type EmailMessagePayload,
 } from "../lib/white-glove"
 import { validateAdminRole } from "../lib/actions/auth-helper"
@@ -368,4 +373,127 @@ test("Test C — Persistence, status workflow, search/filter/sort, email failure
     () => validateAdminRole({ user: { email: "user@test.com", role: "customer" } }),
     /Forbidden/
   )
+})
+
+test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemailer MIME compilation (reusing VIP Waitlist Gmail SMTP variables)", async () => {
+  resetSubmissionRateLimitForTests()
+
+  const prevAdminNotification = process.env.ADMIN_NOTIFICATION_EMAIL
+  const prevAdminEmail = process.env.ADMIN_EMAIL
+  const prevSmtpHost = process.env.SMTP_HOST
+  const prevSmtpPort = process.env.SMTP_PORT
+  const prevSmtpSecure = process.env.SMTP_SECURE
+  const prevSmtpUser = process.env.SMTP_USER
+  const prevSmtpPass = process.env.SMTP_PASS
+
+  try {
+    // 1. Verify official recipient resolution defaults to mngjewerly25k@gmail.com even if ADMIN_EMAIL is admin@mgjewelry.com
+    delete process.env.ADMIN_NOTIFICATION_EMAIL
+    process.env.ADMIN_EMAIL = "admin@mgjewelry.com"
+    assert.equal(OFFICIAL_ADMIN_NOTIFICATION_EMAIL, "mngjewerly25k@gmail.com")
+    assert.equal(
+      getBusinessNotificationEmail(),
+      "mngjewerly25k@gmail.com",
+      "Must route to mngjewerly25k@gmail.com and never fall back to login username admin@mgjewelry.com"
+    )
+
+    process.env.ADMIN_NOTIFICATION_EMAIL = "mngjewerly25k@gmail.com"
+    assert.equal(getBusinessNotificationEmail(), "mngjewerly25k@gmail.com")
+
+    // 2. Configure the exact VIP Waitlist Gmail SMTP environment variables
+    delete process.env.SMTP_HOST // defaults to smtp.gmail.com
+    delete process.env.SMTP_PORT // defaults to 465
+    delete process.env.SMTP_SECURE // defaults to true on port 465
+    process.env.SMTP_USER = "mngjewerly25k@gmail.com"
+    process.env.SMTP_PASS = "test_16_char_app_password"
+
+    const configStatus = getEmailDeliveryConfigStatus()
+    assert.equal(configStatus.adminNotificationEmail, "mngjewerly25k@gmail.com")
+    assert.equal(configStatus.activeTransport, "smtp")
+    assert.equal(configStatus.reusesVipGmailSmtp, true)
+    assert.equal(configStatus.smtpHost, "smtp.gmail.com")
+    assert.equal(configStatus.smtpPort, 465)
+    assert.deepEqual(configStatus.missingVariables, [])
+
+    // 3. Verify createMailSender invokes Nodemailer with the exact Gmail SMTP config and generates valid RFC-5322 MIME messages
+    const capturedTransportConfigs: any[] = []
+    const compiledMimeMessages: Array<{ envelope: any; rawMime: string }> = []
+
+    const realNodemailerSender = createMailSender((smtpOpts: any) => {
+      capturedTransportConfigs.push(smtpOpts)
+      const streamTransport = nodemailer.createTransport({
+        streamTransport: true,
+        buffer: true,
+        newline: "windows",
+      })
+      const origSendMail = streamTransport.sendMail.bind(streamTransport)
+      streamTransport.sendMail = async (mailOptions: any) => {
+        const info: any = await origSendMail(mailOptions)
+        compiledMimeMessages.push({
+          envelope: info.envelope,
+          rawMime: info.message.toString("utf8"),
+        })
+        return info
+      }
+      return streamTransport as any
+    })
+
+    const db = createMockQuizDb()
+    const realMimeService = createWhiteGloveService(db, realNodemailerSender)
+
+    const result = await realMimeService.submitQuiz({
+      answers: { ...SAMPLE_ANSWERS, q11: "Email" },
+      preferredContactMethod: "Email",
+      contactValue: "real.smtp.customer@example.com",
+      idempotencyKey: "idem_real_smtp_1",
+    })
+
+    assert.equal(result.success, true)
+    assert.equal(result.request.notifications.adminEmail.status, "sent")
+    assert.equal(
+      result.request.notifications.adminEmail.recipient,
+      "mngjewerly25k@gmail.com"
+    )
+    assert.equal(result.request.notifications.customerEmail.status, "sent")
+    assert.equal(
+      result.request.notifications.customerEmail.recipient,
+      "real.smtp.customer@example.com"
+    )
+
+    // Verify exact VIP Waitlist Gmail SMTP options passed to Nodemailer
+    assert.equal(capturedTransportConfigs.length, 2)
+    assert.deepEqual(capturedTransportConfigs[0], {
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: "mngjewerly25k@gmail.com",
+        pass: "test_16_char_app_password",
+      },
+    })
+
+    // Verify compiled MIME envelopes
+    assert.equal(compiledMimeMessages.length, 2)
+    assert.deepEqual(compiledMimeMessages[0].envelope.to, ["mngjewerly25k@gmail.com"])
+    assert.equal(compiledMimeMessages[0].envelope.from, "mngjewerly25k@gmail.com")
+    assert.ok(compiledMimeMessages[0].rawMime.includes("Reply-To: real.smtp.customer@example.com"))
+
+    assert.deepEqual(compiledMimeMessages[1].envelope.to, ["real.smtp.customer@example.com"])
+    assert.equal(compiledMimeMessages[1].envelope.from, "mngjewerly25k@gmail.com")
+  } finally {
+    if (prevAdminNotification === undefined) delete process.env.ADMIN_NOTIFICATION_EMAIL
+    else process.env.ADMIN_NOTIFICATION_EMAIL = prevAdminNotification
+    if (prevAdminEmail === undefined) delete process.env.ADMIN_EMAIL
+    else process.env.ADMIN_EMAIL = prevAdminEmail
+    if (prevSmtpHost === undefined) delete process.env.SMTP_HOST
+    else process.env.SMTP_HOST = prevSmtpHost
+    if (prevSmtpPort === undefined) delete process.env.SMTP_PORT
+    else process.env.SMTP_PORT = prevSmtpPort
+    if (prevSmtpSecure === undefined) delete process.env.SMTP_SECURE
+    else process.env.SMTP_SECURE = prevSmtpSecure
+    if (prevSmtpUser === undefined) delete process.env.SMTP_USER
+    else process.env.SMTP_USER = prevSmtpUser
+    if (prevSmtpPass === undefined) delete process.env.SMTP_PASS
+    else process.env.SMTP_PASS = prevSmtpPass
+  }
 })
