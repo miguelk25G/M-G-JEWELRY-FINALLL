@@ -1,15 +1,18 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Package, ShoppingCart, Users, ArrowUpRight } from "lucide-react"
+import { DollarSign, Package, ShoppingCart, Users, Sparkles } from "lucide-react"
 import { db } from "@/lib/db"
+import { createWhiteGloveService } from "@/lib/white-glove"
 import Link from "next/link"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminDashboard() {
-  const [productCount, orderCount, totalRevenueArr] = await Promise.all([
+  const whiteGloveService = createWhiteGloveService(db)
+  const [productCount, orderCount, totalRevenueArr, whiteGloveSummary] = await Promise.all([
     db.product.count(),
     db.order.count(),
-    db.order.aggregate({ _sum: { total: true }, where: { status: "Completed" } })
+    db.order.aggregate({ _sum: { total: true }, where: { status: "Completed" } }),
+    whiteGloveService.listRequests({ sortOrder: "desc" }),
   ])
 
   const realRevenue = totalRevenueArr._sum.total || 0
@@ -54,12 +57,16 @@ export default async function AdminDashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Active Members</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">White-Glove Requests</CardTitle>
+            <Sparkles className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">+1</div>
-            <p className="text-xs text-muted-foreground">Admin/Vip account</p>
+            <div className="text-2xl font-bold">{whiteGloveSummary.totalCount}</div>
+            <p className="text-xs text-muted-foreground">
+              <Link href="/admin/white-glove" className="underline hover:text-foreground">
+                {whiteGloveSummary.newCount} new unreviewed request(s)
+              </Link>
+            </p>
           </CardContent>
         </Card>
       </div>

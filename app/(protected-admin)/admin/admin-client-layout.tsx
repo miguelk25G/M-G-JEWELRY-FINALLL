@@ -1,12 +1,11 @@
 "use client"
 
-import React from "react"
-
-import { useState } from "react"
+import React, { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Logo } from "@/components/brand/logo"
 import {
   LayoutDashboard,
@@ -21,26 +20,35 @@ import {
   ChevronRight,
   Tag,
   FolderOpen,
+  Sparkles,
 } from "lucide-react"
-
-const sidebarItems = [
-  { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/admin/products", icon: Package, label: "Products" },
-  { href: "/admin/categories", icon: FolderOpen, label: "Categories" },
-  { href: "/admin/orders", icon: ShoppingCart, label: "Orders" },
-  { href: "/admin/customers", icon: Users, label: "Customers" },
-  { href: "/admin/messages", icon: MessageSquare, label: "Messages" },
-  { href: "/admin/promotions", icon: Tag, label: "Promotions" },
-  { href: "/admin/settings", icon: Settings, label: "Settings" },
-]
 
 export default function AdminClientLayout({
   children,
+  newWhiteGloveCount = 0,
 }: {
   children: React.ReactNode
+  newWhiteGloveCount?: number
 }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const sidebarItems = [
+    { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
+    { href: "/admin/products", icon: Package, label: "Products" },
+    { href: "/admin/categories", icon: FolderOpen, label: "Categories" },
+    { href: "/admin/orders", icon: ShoppingCart, label: "Orders" },
+    {
+      href: "/admin/white-glove",
+      icon: Sparkles,
+      label: "White-Glove Requests",
+      badgeCount: newWhiteGloveCount,
+    },
+    { href: "/admin/customers", icon: Users, label: "Customers" },
+    { href: "/admin/messages", icon: MessageSquare, label: "Messages" },
+    { href: "/admin/promotions", icon: Tag, label: "Promotions" },
+    { href: "/admin/settings", icon: Settings, label: "Settings" },
+  ]
 
   return (
     <div className="min-h-screen bg-background">
@@ -79,7 +87,8 @@ export default function AdminClientLayout({
           <nav className="flex-1 overflow-y-auto py-4 px-3">
             <ul className="space-y-1">
               {sidebarItems.map((item) => {
-                const isActive = pathname === item.href || 
+                const isActive =
+                  pathname === item.href ||
                   (item.href !== "/admin" && pathname.startsWith(item.href))
                 return (
                   <li key={item.href}>
@@ -93,9 +102,24 @@ export default function AdminClientLayout({
                       )}
                       onClick={() => setSidebarOpen(false)}
                     >
-                      <item.icon className="h-5 w-5" />
-                      {item.label}
-                      {isActive && <ChevronRight className="h-4 w-4 ml-auto" />}
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                      {typeof item.badgeCount === "number" && item.badgeCount > 0 && (
+                        <Badge
+                          variant={isActive ? "secondary" : "default"}
+                          className={cn(
+                            "ml-auto h-5 min-w-5 px-1.5 text-[11px] font-semibold flex items-center justify-center rounded-full",
+                            isActive
+                              ? "bg-background text-foreground"
+                              : "bg-primary text-primary-foreground"
+                          )}
+                        >
+                          {item.badgeCount}
+                        </Badge>
+                      )}
+                      {isActive && (!item.badgeCount || item.badgeCount <= 0) && (
+                        <ChevronRight className="h-4 w-4 ml-auto shrink-0" />
+                      )}
                     </Link>
                   </li>
                 )
@@ -130,6 +154,15 @@ export default function AdminClientLayout({
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex items-center gap-4 ml-auto">
+              {newWhiteGloveCount > 0 && (
+                <Link
+                  href="/admin/white-glove"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-3 py-1 text-xs font-medium text-foreground hover:bg-secondary transition-colors"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <span>{newWhiteGloveCount} New White-Glove</span>
+                </Link>
+              )}
               <div className="text-sm">
                 <span className="text-muted-foreground">Welcome,</span>{" "}
                 <span className="font-medium">Admin</span>

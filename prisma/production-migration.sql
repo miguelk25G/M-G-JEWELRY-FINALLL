@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS "StripeEvent" (
   CONSTRAINT "StripeEvent_pkey" PRIMARY KEY ("id")
 );
 
+-- 4. Ensure QuizSubmission table exists for White-Glove Quiz leads & notifications
+CREATE TABLE IF NOT EXISTS "QuizSubmission" (
+  "id" TEXT NOT NULL,
+  "answers" TEXT NOT NULL,
+  "preferredContact" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "QuizSubmission_pkey" PRIMARY KEY ("id")
+);
+
 COMMIT;
 
 -- ==============================================================================
