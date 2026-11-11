@@ -4,12 +4,12 @@ import nodemailer from "nodemailer"
 import {
   createWhiteGloveService,
   createMailSender,
-  validateAndNormalizeEmail,
-  validateAndNormalizeInstagram,
-  resetSubmissionRateLimitForTests,
   getBusinessNotificationEmail,
   getEmailDeliveryConfigStatus,
   OFFICIAL_ADMIN_NOTIFICATION_EMAIL,
+  validateAndNormalizeEmail,
+  validateAndNormalizeInstagram,
+  resetSubmissionRateLimitForTests,
   type EmailMessagePayload,
 } from "../lib/white-glove"
 import { validateAdminRole } from "../lib/actions/auth-helper"
@@ -52,6 +52,12 @@ function createMockQuizDb() {
       findUnique: async ({ where }: any) => {
         const found = rows.find((r) => r.id === where.id)
         return found ? structuredClone(found) : null
+      },
+      updateMany: async ({ where, data }: any) => {
+        const row = rows.find(r => r.id === where.id && r.answers === where.answers)
+        if (!row) return { count: 0 }
+        Object.assign(row, data)
+        return { count: 1 }
       },
       update: async ({ where, data }: any) => {
         const idx = rows.findIndex((r) => r.id === where.id)
@@ -288,7 +294,7 @@ test("Test C — Persistence, status workflow, search/filter/sort, email failure
     "failed",
     "Failed business email must be recorded"
   )
-  assert.match(sub1.request.notifications.adminEmail.error || "", /SMTP connection timeout/)
+  assert.match(sub1.request.notifications.adminEmail.error || "", /Email sending failed/)
   assert.equal(
     sub1.request.notifications.customerEmail.status,
     "sent",
@@ -375,9 +381,39 @@ test("Test C — Persistence, status workflow, search/filter/sort, email failure
   )
 })
 
+
+test("Concurrent retries claim each recipient once and retain tracking", async () => {
+  resetSubmissionRateLimitForTests()
+  const db = createMockQuizDb()
+  const initial = createWhiteGloveService(db, async () => ({ sent: false, skippedReason: "not configured" }))
+  const result = await initial.submitQuiz({ answers: SAMPLE_ANSWERS, preferredContactMethod: "Email", contactValue: "concurrent@example.com", idempotencyKey: "concurrent-retry-test" })
+  let calls = 0
+  const retry = createWhiteGloveService(db, async () => { calls++; await new Promise(r => setTimeout(r, 5)); return { sent: true, messageId: "accepted" } })
+  await Promise.all([retry.retryNotifications(result.submissionId), retry.retryNotifications(result.submissionId)])
+  assert.equal(calls, 2)
+  await assert.rejects(() => retry.updateRequestStatus(result.submissionId, "Paid"), /Link a real order/)
+  const updated = await retry.updateRequestStatus(result.submissionId, "Quoted", "Quote prepared", { channel: "Instagram", note: "Client asked for a quote" })
+  assert.equal(updated.contactHistory?.[0].channel, "Instagram")
+  assert.equal(JSON.parse(db._rows[0].answers).idempotencyKey, "concurrent-retry-test")
+})
+
+test("Ambiguous SMTP outcomes never automatically resend", async () => {
+  resetSubmissionRateLimitForTests()
+  const db = createMockQuizDb()
+  let calls = 0
+  const service = createWhiteGloveService(db, async () => { calls++; throw Object.assign(new Error("secret must not leak"), { code: "ETIMEDOUT" }) })
+  const saved = await service.submitQuiz({ answers: SAMPLE_ANSWERS, preferredContactMethod: "Instagram", contactValue: "test.client", idempotencyKey: "uncertain-test" })
+  assert.equal(saved.request.notifications.adminEmail.status, "uncertain")
+  assert.doesNotMatch(saved.request.notifications.adminEmail.error || "", /secret/)
+  await service.retryNotifications(saved.submissionId)
+  assert.equal(calls, 1)
+})
+
 test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemailer MIME compilation (reusing VIP Waitlist Gmail SMTP variables)", async () => {
   resetSubmissionRateLimitForTests()
 
+  const prevResend = process.env.RESEND_API_KEY
+  delete process.env.RESEND_API_KEY
   const prevAdminNotification = process.env.ADMIN_NOTIFICATION_EMAIL
   const prevAdminEmail = process.env.ADMIN_EMAIL
   const prevSmtpHost = process.env.SMTP_HOST
@@ -433,7 +469,7 @@ test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemaile
           envelope: info.envelope,
           rawMime: info.message.toString("utf8"),
         })
-        return info
+        return { ...info, accepted: info.envelope.to }
       }
       return streamTransport as any
     })
@@ -466,6 +502,9 @@ test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemaile
       host: "smtp.gmail.com",
       port: 465,
       secure: true,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       auth: {
         user: "mngjewerly25k@gmail.com",
         pass: "test_16_char_app_password",
@@ -481,6 +520,8 @@ test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemaile
     assert.deepEqual(compiledMimeMessages[1].envelope.to, ["real.smtp.customer@example.com"])
     assert.equal(compiledMimeMessages[1].envelope.from, "mngjewerly25k@gmail.com")
   } finally {
+    if (prevResend === undefined) delete process.env.RESEND_API_KEY
+    else process.env.RESEND_API_KEY = prevResend
     if (prevAdminNotification === undefined) delete process.env.ADMIN_NOTIFICATION_EMAIL
     else process.env.ADMIN_NOTIFICATION_EMAIL = prevAdminNotification
     if (prevAdminEmail === undefined) delete process.env.ADMIN_EMAIL

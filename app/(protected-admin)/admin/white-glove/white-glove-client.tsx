@@ -58,7 +58,7 @@ import {
   type WhiteGloveAdminRequest,
   type WhiteGloveStatus,
   type EmailDeliveryConfigStatus,
-} from "@/lib/white-glove"
+} from "@/lib/white-glove-shared"
 import {
   updateWhiteGloveStatusAction,
   retryWhiteGloveNotificationAction,
@@ -118,6 +118,9 @@ export function WhiteGloveClient({
   const [selectedRequest, setSelectedRequest] = useState<WhiteGloveAdminRequest | null>(null)
   const [draftStatus, setDraftStatus] = useState<WhiteGloveStatus>("New")
   const [draftAdminNotes, setDraftAdminNotes] = useState<string>("")
+  const [draftOrderId, setDraftOrderId] = useState("")
+  const [draftChannel, setDraftChannel] = useState("Email")
+  const [draftContactNote, setDraftContactNote] = useState("")
   const [isSavingStatus, setIsSavingStatus] = useState(false)
   const [isRetryingEmail, setIsRetryingEmail] = useState(false)
 
@@ -137,6 +140,9 @@ export function WhiteGloveClient({
 
   const openDetailModal = (req: WhiteGloveAdminRequest) => {
     setSelectedRequest(req)
+    setDraftOrderId(req.linkedOrderId || "")
+    setDraftChannel(req.preferredContact)
+    setDraftContactNote("")
     setDraftStatus(req.status)
     setDraftAdminNotes(req.adminNotes || "")
   }
@@ -191,6 +197,9 @@ export function WhiteGloveClient({
         id: targetId,
         status: nextStatus,
         adminNotes: notes,
+        orderId: selectedRequest?.id === targetId ? draftOrderId : undefined,
+        channel: draftChannel as import("@/lib/white-glove-shared").WhiteGloveContactMethod,
+        note: selectedRequest?.id === targetId ? draftContactNote : undefined,
       })
 
       if (!res.success || !res.request) {
@@ -207,6 +216,7 @@ export function WhiteGloveClient({
         setDraftAdminNotes(res.request.adminNotes || "")
       }
 
+      setDraftContactNote("")
       toast.success(`Request status updated to "${nextStatus}".`, { id: toastId })
       router.refresh()
     } catch {
@@ -281,7 +291,6 @@ export function WhiteGloveClient({
             Review and manage customer submissions from the White-Glove Quiz.
           </p>
         </div>
-
         {emailConfigStatus && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-xs">
             <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -293,14 +302,14 @@ export function WhiteGloveClient({
               variant="outline"
               className={
                 emailConfigStatus.activeTransport !== "unconfigured"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[11px]"
+                  ? "bg-amber-500/15 text-amber-400 border-amber-500/30 text-[11px]"
                   : "bg-amber-500/15 text-amber-400 border-amber-500/30 text-[11px]"
               }
             >
               {emailConfigStatus.activeTransport === "smtp"
-                ? "Gmail SMTP Active"
+                ? "SMTP Configured — delivery unverified"
                 : emailConfigStatus.activeTransport === "resend"
-                  ? "Resend API Active"
+                  ? "Resend Configured — delivery unverified"
                   : "SMTP Credentials Pending"}
             </Badge>
           </div>
@@ -384,7 +393,7 @@ export function WhiteGloveClient({
                   <SelectItem value="Email">Email</SelectItem>
                   <SelectItem value="Instagram">Instagram</SelectItem>
                   <SelectItem value="WhatsApp">WhatsApp</SelectItem>
-                  <SelectItem value="Phone Text">Phone Text</SelectItem>
+                  <SelectItem value="Phone Text">SMS</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -471,7 +480,7 @@ export function WhiteGloveClient({
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs font-normal">
-                        {req.preferredContact}
+                        {req.preferredContact === "Phone Text" ? "SMS" : req.preferredContact}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -582,6 +591,19 @@ export function WhiteGloveClient({
               </DialogHeader>
 
               <div className="space-y-6 py-2">
+                <div className="space-y-3 rounded-md border p-3">
+                  <p>{selectedRequest.linkedOrderId ? "Linked order: " + selectedRequest.linkedOrderId : "Lead — no confirmed order linked"}</p>
+                  <Label htmlFor="wg-order">Real order ID (optional)</Label>
+                  <Input id="wg-order" value={draftOrderId} onChange={e => setDraftOrderId(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">Paid, In Production and Shipped require a linked order with confirmed payment. Request stages do not change the order or collect payment.</p>
+                  <Label htmlFor="wg-channel">Contact channel used</Label>
+                  <select id="wg-channel" className="bg-background border rounded p-2" value={draftChannel} onChange={e => setDraftChannel(e.target.value)}>
+                    {["Email", "Instagram", "Phone Text", "WhatsApp"].map(c => <option key={c} value={c}>{c === "Phone Text" ? "SMS" : c}</option>)}
+                  </select>
+                  <Input aria-label="Contact follow-up note" placeholder="Record contact, response or next step" value={draftContactNote} onChange={e => setDraftContactNote(e.target.value)} />
+                  {(selectedRequest.contactHistory || []).map((entry, i) => <p key={i} className="text-sm">{formatDateTime(entry.recordedAt)} · {entry.channel} · {entry.note}</p>)}
+                  {selectedRequest.statusHistory.map((entry, i) => <p key={"status-" + i} className="text-xs text-muted-foreground">{formatDateTime(entry.changedAt)} · {entry.status}</p>)}
+                </div>
                 {/* 1. Customer Contact & Direct Action Links */}
                 <div className="rounded-lg border border-border bg-background/60 p-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -725,7 +747,7 @@ export function WhiteGloveClient({
                   </div>
                 )}
 
-                {/* 5. Email Notification Delivery Status & Safe Retry */}
+                {/* 5. Email Email Sending Status & Safe Retry */}
                 <div className="rounded-lg border border-border bg-background/50 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
@@ -750,6 +772,7 @@ export function WhiteGloveClient({
                     )}
                   </div>
 
+                  <p className="text-xs text-muted-foreground">Sent means accepted by the email server; inbox delivery is not confirmed. Sending or uncertain attempts require provider review before another send.</p>
                   <div className="grid sm:grid-cols-2 gap-3 text-xs">
                     <div className="flex items-start gap-2 rounded border border-border/60 p-2.5">
                       {selectedRequest.notifications.adminEmail.status === "sent" ? (

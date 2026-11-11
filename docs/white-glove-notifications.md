@@ -1,0 +1,9 @@
+# White-Glove notification repair
+
+Production investigation (2026-11-11): last READY commit cf32da9 still uses a mock submission. Commit edd67c8 failed to build because the Admin client imported SMTP code via lib/white-glove.ts (node:net in browser chunk). SMTP variable names are present; credential validity and inbox delivery must be checked through a real submission after release. Runtime logs retain only one hour on the current plan.
+
+Shared UI constants/types are separated from mail implementation. Existing QuizSubmission JSON records are preserved; no schema migration or data deletion is required. Admin supports original quiz channels (Email, Instagram, SMS/Phone Text, WhatsApp), channel follow-up history, notes and stages. Real order ID and confirmed payment are required for paid/production/shipped stages. Lead stages do not change orders or payment records.
+
+Recipient dispatch uses database compare-and-swap before each external send. Persisted sending/uncertain attempts are not automatically retried: inspect provider records first, because SMTP cannot guarantee exactly-once delivery across a crash. Definite failures/unconfigured attempts can be retried; accepted recipients are skipped. SMTP acceptance does not prove inbox delivery. Request saves remain successful even if notification dispatch cannot finish. Logs contain request ID, channel, status and attempts, without credentials or raw provider errors.
+
+Validation: six service tests include concurrent retries, uncertain outcome protection, legacy persistence, contact filtering, lead/payment guard, and idempotency preservation after admin edits. TypeScript check and Next webpack production compilation pass locally. Local Turbopack has a Windows subprocess issue; production should validate its normal build on Vercel.
