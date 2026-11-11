@@ -213,7 +213,9 @@ export function PromotionsClient({ initialCodes, products }: { initialCodes: any
                          <span className="text-green-500">-${(product.comparePrice - product.price).toFixed(2)}</span>
                       ) : "-"}
                     </TableCell>
-                    <TableCell>{product.inventoryQty} u.</TableCell>
+                    <TableCell>
+                      {product.inventoryQty < 0 ? "Unlimited" : `${product.inventoryQty} u.`}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

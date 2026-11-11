@@ -11,7 +11,9 @@ import { useFavoritesStore } from '@/lib/store/favorites-store'
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { getStorefrontStockState, parseImagesList } from '@/lib/inventory'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 interface ProductCardProps {
   product: {
@@ -36,13 +38,15 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const { t, locale } = useTranslation()
   const { toggleItem, isFavorite } = useFavoritesStore()
   const addToCart = useCartStore((state) => state.addItem)
+  const cartItems = useCartStore((state) => state.items)
 
-  const images = JSON.parse(product.images) as string[]
+  const images = parseImagesList(product.images)
   const mainImage = images[0] || '/placeholder.svg'
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
   const isOnSale = product.comparePrice && product.comparePrice > product.price
-  const isLowStock = product.inventoryQty > 0 && product.inventoryQty <= 3
-  const isOutOfStock = product.inventoryQty === 0
+  const stockState = getStorefrontStockState(product.inventoryQty)
+  const isLowStock = stockState.isLowStock
+  const isOutOfStock = stockState.isOutOfStock
   const favorite = isFavorite(product.id)
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
@@ -61,6 +65,17 @@ export function ProductCard({ product, className }: ProductCardProps) {
     e.preventDefault()
     e.stopPropagation()
     if (!isOutOfStock) {
+      const existingQty = cartItems
+        .filter((item) => item.productId === product.id)
+        .reduce((sum, item) => sum + item.quantity, 0)
+      if (stockState.maxPurchasableQty !== null && existingQty >= stockState.maxPurchasableQty) {
+        toast.error(
+          locale === 'es'
+            ? `Solo hay ${stockState.maxPurchasableQty} unidad(es) disponible(s).`
+            : `Only ${stockState.maxPurchasableQty} unit(s) available in stock.`
+        )
+        return
+      }
       addToCart({
         productId: product.id,
         name: displayName,
@@ -69,6 +84,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         quantity: 1,
         metalType: product.metalType,
         karat: product.karat || undefined,
+        maxStock: stockState.maxPurchasableQty ?? undefined,
       })
     }
   }

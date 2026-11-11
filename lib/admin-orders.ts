@@ -23,6 +23,8 @@ export function createAdminOrderService(db: any, stripe: any) {
     if (status === "cancelled") {
       if (order.stripeSessionId) {
         await createPaymentService(db, stripe).cancel(order.stripeSessionId)
+      } else if (order.reservationStatus === "reserved" && order.paymentStatus === "pending") {
+        await createPaymentService(db, stripe).releaseReservation(orderId, "Pedido cancelado por administración")
       } else {
         const res = await db.order.updateMany({
           where: { id: orderId, status: { not: "cancelled" } },
@@ -260,5 +262,10 @@ export function createAdminOrderService(db: any, stripe: any) {
     return syncOutcome
   }
 
-  return { updateOrderStatus, markOrderAsPaid, syncOrderPaymentWithStripe }
+  async function restockOrderInventory(orderId: string, reason?: string) {
+    const paymentService = createPaymentService(db, stripe)
+    return await paymentService.restockOrderInventory(orderId, reason)
+  }
+
+  return { updateOrderStatus, markOrderAsPaid, syncOrderPaymentWithStripe, restockOrderInventory }
 }

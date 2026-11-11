@@ -31,7 +31,7 @@ import { toast } from 'sonner'
 
 export function CheckoutContent() {
   const { t, locale } = useTranslation()
-  const { items, subtotal, updateItemSize } = useCartStore()
+  const { items, subtotal, updateItemSize, updateQuantity, removeItem } = useCartStore()
   const [isProcessing, setIsProcessing] = useState(false)
   const [promoInput, setPromoInput] = useState("")
   const [isValidatingPromo, setIsValidatingPromo] = useState(false)
@@ -334,6 +334,43 @@ export function CheckoutContent() {
                         <Link href={`/product/${issue.slug || issue.productId}`}>
                           {locale === 'es' ? "Volver a la ficha" : "Go to product"}
                         </Link>
+                      </Button>
+                    )}
+                    {issue.type === 'insufficient_stock' && affectedItem && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="self-start sm:self-auto h-7 text-xs"
+                        onClick={() => {
+                          const avail = catalogMap[issue.productId]?.inventoryQty ?? 1
+                          updateQuantity(affectedItem.id, Math.max(1, avail))
+                          toast.success(
+                            locale === 'es'
+                              ? `Cantidad ajustada a ${Math.max(1, avail)} disponible(s)`
+                              : `Quantity adjusted to ${Math.max(1, avail)} available`
+                          )
+                        }}
+                      >
+                        {locale === 'es' ? "Ajustar cantidad" : "Adjust quantity"}
+                      </Button>
+                    )}
+                    {issue.type === 'unavailable' && affectedItem && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        className="self-start sm:self-auto h-7 text-xs"
+                        onClick={() => {
+                          removeItem(affectedItem.id)
+                          toast.success(
+                            locale === 'es'
+                              ? "Artículo agotado eliminado del carrito"
+                              : "Out-of-stock item removed from cart"
+                          )
+                        }}
+                      >
+                        {locale === 'es' ? "Eliminar artículo" : "Remove item"}
                       </Button>
                     )}
                   </div>

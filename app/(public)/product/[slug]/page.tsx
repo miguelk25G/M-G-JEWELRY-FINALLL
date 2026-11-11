@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { ProductDetail } from './product-detail'
 import { db } from '@/lib/db'
+import { createAdminProductService } from '@/lib/admin-products'
+
+export const dynamic = 'force-dynamic'
 
 type Props = {
   params: Promise<{ slug: string }>
@@ -11,17 +14,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const product = await db.product.findUnique({ where: { slug } })
 
-  if (!product) {
+  if (!product || !product.isActive) {
     return {
       title: 'Product Not Found',
     }
   }
-  
+
   let imageUrl = ''
   try {
-     imageUrl = JSON.parse(product.images)[0]
+    imageUrl = JSON.parse(product.images)[0]
   } catch {
-     imageUrl = product.images
+    imageUrl = product.images
   }
 
   return {
@@ -37,20 +40,36 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ProductPage({ params }: Props) {
   const { slug } = await params
-  const product = await db.product.findUnique({ where: { slug } })
+  let product = await db.product.findUnique({ where: { slug } })
 
+  const productService = createAdminProductService(db)
+  const metaStore = await productService.getCatalogMetadata()
+
+  // Fallback: if accessed by custom SKU, resolve matching active product
   if (!product) {
+    const matchedProductId = Object.entries(metaStore.products).find(
+      ([, meta]) => meta?.sku && meta.sku.toLowerCase() === slug.toLowerCase()
+    )?.[0]
+    if (matchedProductId) {
+      product = await db.product.findUnique({ where: { id: matchedProductId } })
+    }
+  }
+
+  if (!product || !product.isActive || product.slug.startsWith('deleted-')) {
     notFound()
   }
 
+  const prodMeta = metaStore.products[product.id] || {}
+  const lowStockThreshold = prodMeta.lowStockThreshold ?? metaStore.lowStockThreshold
+
   // Get related products (same category, excluding current)
   const relatedDbProducts = await db.product.findMany({
-    where: { 
-      category: product.category,
+    where: {
+      category: { equals: product.category, mode: 'insensitive' },
       id: { not: product.id },
-      isActive: true
+      isActive: true,
     },
-    take: 4
+    take: 4,
   })
 
   // Format products
@@ -58,16 +77,29 @@ export default async function ProductPage({ params }: Props) {
     ...product,
     nameEs: product.nameEs || product.name,
     descriptionEs: product.descriptionEs || product.description,
-    karat: product.karat || '',
-    sizes: product.sizes || JSON.stringify(['5', '6', '7', '8']) // Adding default sizes if empty text for jewelry purposes
+    karat: prodMeta.material || product.karat || '',
+    metalType: prodMeta.metalColor || product.metalType || 'Yellow Gold',
+    sku: prodMeta.sku || product.slug,
+    lengths: prodMeta.lengths || [],
+    variations: prodMeta.variations || [],
+    lowStockThreshold,
+    sizes: product.sizes,
   }
 
-  const formattedRelated = relatedDbProducts.map(p => ({
-     ...p,
-     nameEs: p.nameEs || p.name,
-     karat: p.karat || '',
-  }))
+  const formattedRelated = relatedDbProducts.map((p) => {
+    const relMeta = metaStore.products[p.id] || {}
+    return {
+      ...p,
+      nameEs: p.nameEs || p.name,
+      karat: relMeta.material || p.karat || '',
+      metalType: relMeta.metalColor || p.metalType,
+    }
+  })
 
-  return <ProductDetail product={formattedProduct as any} relatedProducts={formattedRelated as any} />
+  return (
+    <ProductDetail
+      product={formattedProduct as any}
+      relatedProducts={formattedRelated as any}
+    />
+  )
 }
-

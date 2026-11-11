@@ -11,6 +11,7 @@ export interface CartItem {
   size?: string
   metalType?: string
   karat?: string
+  maxStock?: number
 }
 
 interface CartStore {
@@ -50,7 +51,16 @@ export const useCartStore = create<CartStore>()(
           set({
             items: items.map((i) =>
               i.id === existingItem.id
-                ? { ...i, quantity: i.quantity + item.quantity }
+                ? {
+                    ...i,
+                    price: item.price,
+                    image: item.image,
+                    maxStock: item.maxStock,
+                    quantity:
+                      typeof item.maxStock === 'number' && item.maxStock >= 0
+                        ? Math.min(item.maxStock, i.quantity + item.quantity)
+                        : i.quantity + item.quantity,
+                  }
                 : i
             ),
           })
@@ -77,9 +87,14 @@ export const useCartStore = create<CartStore>()(
           return
         }
         set({
-          items: get().items.map((i) =>
-            i.id === id ? { ...i, quantity } : i
-          ),
+          items: get().items.map((i) => {
+            if (i.id !== id) return i
+            const capped =
+              typeof i.maxStock === 'number' && i.maxStock >= 0
+                ? Math.min(i.maxStock, quantity)
+                : quantity
+            return { ...i, quantity: capped }
+          }),
         })
       },
 

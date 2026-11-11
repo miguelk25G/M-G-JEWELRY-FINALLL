@@ -13,6 +13,7 @@ import { useCartStore } from '@/lib/store/cart-store'
 import { useFavoritesStore } from '@/lib/store/favorites-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
+import { getStorefrontStockState } from '@/lib/inventory'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -21,6 +22,7 @@ interface Product {
   name: string
   nameEs: string | null
   slug: string
+  sku?: string
   description: string
   descriptionEs: string | null
   price: number
@@ -34,8 +36,11 @@ interface Product {
   isFeatured: boolean
   isBestSeller: boolean
   inventoryQty: number
+  lowStockThreshold?: number
   weight?: number | null
   length?: number | null
+  lengths?: string[]
+  variations?: string[]
   sizes: string | null
 }
 
@@ -63,6 +68,7 @@ interface ProductDetailProps {
 export function ProductDetail({ product, relatedProducts }: ProductDetailProps) {
   const { t, locale } = useTranslation()
   const addToCart = useCartStore((state) => state.addItem)
+  const cartItems = useCartStore((state) => state.items)
   const { toggleItem, isFavorite } = useFavoritesStore()
 
   const images = (() => {
@@ -70,7 +76,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       const parsed = JSON.parse(product.images)
       return Array.isArray(parsed) && parsed.length > 0 ? parsed : ['/placeholder.svg']
     } catch {
-      return ['/placeholder.svg']
+      return product.images ? [product.images] : ['/placeholder.svg']
     }
   })()
 
@@ -94,11 +100,20 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
   const displayDescription = locale === 'es' && product.descriptionEs ? product.descriptionEs : product.description
   const isOnSale = product.comparePrice && product.comparePrice > product.price
-  const isLowStock = product.inventoryQty > 0 && product.inventoryQty <= 3
-  const isOutOfStock = product.inventoryQty === 0
+
+  const stockState = getStorefrontStockState(product.inventoryQty, product.lowStockThreshold)
+  const { isUnlimited, isLowStock, isOutOfStock, maxPurchasableQty } = stockState
   const favorite = isFavorite(product.id)
 
+  const existingInCart = cartItems
+    .filter((i) => i.productId === product.id)
+    .reduce((sum, i) => sum + i.quantity, 0)
+
   const handleAddToCart = () => {
+    if (isOutOfStock) {
+      toast.error(locale === 'es' ? 'Este producto está agotado' : 'This product is out of stock')
+      return
+    }
     if (hasSizes && !selectedSize) {
       toast.error(locale === 'es' ? 'Por favor selecciona una talla' : 'Please select a size')
       return
@@ -107,6 +122,20 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       toast.error(locale === 'es' ? 'Por favor selecciona una talla disponible' : 'Please select an available size')
       return
     }
+    if (!isUnlimited && maxPurchasableQty !== null && existingInCart + quantity > maxPurchasableQty) {
+      const remaining = Math.max(0, maxPurchasableQty - existingInCart)
+      toast.error(
+        locale === 'es'
+          ? remaining === 0
+            ? `Ya tienes el máximo disponible (${maxPurchasableQty}) en tu carrito.`
+            : `Solo quedan ${maxPurchasableQty} unidades disponibles (${remaining} adicionales).`
+          : remaining === 0
+            ? `You already have the maximum available quantity (${maxPurchasableQty}) in your cart.`
+            : `Only ${maxPurchasableQty} available in stock (${remaining} more can be added).`
+      )
+      return
+    }
+
     addToCart({
       productId: product.id,
       name: displayName,
@@ -116,6 +145,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       size: hasSizes ? (selectedSize || undefined) : undefined,
       metalType: product.metalType,
       karat: product.karat || undefined,
+      maxStock: isUnlimited ? undefined : (maxPurchasableQty ?? undefined),
     })
     toast.success(t('product.addedToCart'))
   }
@@ -159,7 +189,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
 
             {/* Thumbnail Gallery */}
             {images.length > 1 && (
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 {images.map((image, index) => (
                   <button
                     key={index}
@@ -221,7 +251,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             {/* Stock Status */}
             <div>
               {isOutOfStock ? (
-                <Badge variant="outline" className="text-destructive">
+                <Badge variant="outline" className="text-destructive border-destructive/40">
                   {t('product.outOfStock')}
                 </Badge>
               ) : isLowStock ? (
@@ -249,7 +279,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                       key={size}
                       onClick={() => setSelectedSize(size)}
                       className={cn(
-                        'flex h-10 w-12 items-center justify-center rounded-md border text-sm transition-colors',
+                        'flex h-10 min-w-12 px-3 items-center justify-center rounded-md border text-sm transition-colors',
                         selectedSize === size
                           ? 'border-foreground bg-foreground text-background'
                           : 'border-border bg-transparent hover:border-foreground'
@@ -272,7 +302,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                   variant="outline"
                   size="icon"
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  disabled={quantity <= 1}
+                  disabled={quantity <= 1 || isOutOfStock}
                 >
                   <Minus className="h-4 w-4" />
                 </Button>
@@ -281,7 +311,10 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                   variant="outline"
                   size="icon"
                   onClick={() => setQuantity(quantity + 1)}
-                  disabled={quantity >= product.inventoryQty}
+                  disabled={
+                    isOutOfStock ||
+                    (!isUnlimited && maxPurchasableQty !== null && quantity >= maxPurchasableQty)
+                  }
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -297,7 +330,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                 disabled={isOutOfStock}
               >
                 <ShoppingBag className="h-5 w-5" />
-                {t('product.addToCart')}
+                {isOutOfStock ? t('product.outOfStock') : t('product.addToCart')}
               </Button>
               <Button
                 size="lg"
@@ -337,6 +370,12 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="mb-3 font-medium text-foreground">{t('product.specifications')}</h3>
               <dl className="grid grid-cols-2 gap-2 text-sm">
+                {product.sku && (
+                  <>
+                    <dt className="text-muted-foreground">SKU</dt>
+                    <dd className="text-foreground font-mono text-xs">{product.sku}</dd>
+                  </>
+                )}
                 <dt className="text-muted-foreground">{t('product.metal')}</dt>
                 <dd className="text-foreground capitalize">{product.metalType}</dd>
                 {product.karat && (
@@ -345,7 +384,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                     <dd className="text-foreground uppercase">{product.karat}</dd>
                   </>
                 )}
-                {product.stoneType !== 'none' && (
+                {product.stoneType && product.stoneType !== 'none' && (
                   <>
                     <dt className="text-muted-foreground">{t('product.stone')}</dt>
                     <dd className="text-foreground capitalize">{product.stoneType} Diamond</dd>
@@ -361,6 +400,22 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                   <>
                     <dt className="text-muted-foreground">{t('product.length')}</dt>
                     <dd className="text-foreground">{product.length}&quot;</dd>
+                  </>
+                )}
+                {product.lengths && product.lengths.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">
+                      {locale === 'es' ? 'Largos disponibles' : 'Available Lengths'}
+                    </dt>
+                    <dd className="text-foreground">{product.lengths.join(', ')}</dd>
+                  </>
+                )}
+                {product.variations && product.variations.length > 0 && (
+                  <>
+                    <dt className="text-muted-foreground">
+                      {locale === 'es' ? 'Variaciones' : 'Variations'}
+                    </dt>
+                    <dd className="text-foreground">{product.variations.join(', ')}</dd>
                   </>
                 )}
               </dl>

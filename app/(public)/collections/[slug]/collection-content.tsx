@@ -74,13 +74,19 @@ export function CollectionContent({ collection, products }: CollectionContentPro
   let filteredProducts = [...products]
   
   if (filterCategory !== 'all') {
-    filteredProducts = filteredProducts.filter((p) => p.category === filterCategory)
+    filteredProducts = filteredProducts.filter(
+      (p) => (p.category || '').toLowerCase() === filterCategory.toLowerCase()
+    )
   }
   if (filterMetal !== 'all') {
-    filteredProducts = filteredProducts.filter((p) => p.metalType === filterMetal)
+    filteredProducts = filteredProducts.filter((p) =>
+      (p.metalType || '').toLowerCase().includes(filterMetal.toLowerCase())
+    )
   }
   if (filterStone !== 'all') {
-    filteredProducts = filteredProducts.filter((p) => p.stoneType === filterStone)
+    filteredProducts = filteredProducts.filter(
+      (p) => (p.stoneType || '').toLowerCase() === filterStone.toLowerCase()
+    )
   }
 
   // Sort products

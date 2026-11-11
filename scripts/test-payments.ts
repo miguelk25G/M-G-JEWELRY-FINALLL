@@ -3,6 +3,15 @@ import assert from 'node:assert/strict'
 import Stripe from 'stripe'
 import { createPaymentService, createWebhookHandler, validateSize } from '../lib/payments'
 import { createAdminOrderService } from '../lib/admin-orders'
+import { createAdminProductService } from '../lib/admin-products'
+import {
+  UNLIMITED_STOCK_SENTINEL,
+  getAdminStockDisplay,
+  getStorefrontStockState,
+  canFulfillQuantity,
+  normalizeInventoryInput,
+  adjustLimitedStock,
+} from '../lib/inventory'
 
 // Contract tests: actual production service/HTTP handler, fake Stripe transport
 // and serialized in-memory Prisma adapter. NOT a PostgreSQL concurrency proof.
@@ -832,4 +841,193 @@ test('Stripe Tax reconciliation rechaza discrepancias: monto base de envío mani
 
   await assert.rejects(f2.service.processEvent(f2.event('checkout.session.completed')))
   assert.equal(f2.state().order.paymentStatus, 'pending', 'Debe rechazar sesión con subtotal de artículos alterado')
+})
+
+// --- Tests for Admin Products Editing & Limited / Unlimited Inventory Management ---
+
+test('Inventory helpers format Stock column labels (Unlimited, 10 Available, Low Stock (2), Out of Stock) and prevent negative stock', () => {
+  assert.deepEqual(getAdminStockDisplay(UNLIMITED_STOCK_SENTINEL), {
+    label: 'Unlimited',
+    status: 'unlimited',
+    isUnlimited: true,
+    isLowStock: false,
+    isOutOfStock: false,
+    quantity: null,
+    threshold: 3,
+  })
+  assert.equal(getAdminStockDisplay(10).label, '10 Available')
+  assert.equal(getAdminStockDisplay(2).label, 'Low Stock (2)')
+  assert.equal(getAdminStockDisplay(2).isLowStock, true)
+  assert.equal(getAdminStockDisplay(0).label, 'Out of Stock')
+  assert.equal(getAdminStockDisplay(0).isOutOfStock, true)
+
+  // Custom low-stock threshold (e.g. 5)
+  assert.equal(getAdminStockDisplay(5, 5).label, 'Low Stock (5)')
+  assert.equal(getAdminStockDisplay(6, 5).label, '6 Available')
+
+  // Normalize and prevent negative limited quantities
+  assert.equal(normalizeInventoryInput('unlimited', null), -1)
+  assert.equal(normalizeInventoryInput('limited', 25), 25)
+  assert.equal(normalizeInventoryInput('limited', 0), 0)
+  assert.throws(() => normalizeInventoryInput('limited', -3), /cannot be negative/i)
+
+  // Manual increase/decrease prevents negative values
+  assert.equal(adjustLimitedStock(5, 3), 8)
+  assert.equal(adjustLimitedStock(2, -5), 0)
+
+  // Storefront availability & fulfillment checks
+  assert.equal(canFulfillQuantity(-1, 999), true, 'Unlimited stock allows any purchase quantity')
+  assert.equal(canFulfillQuantity(3, 3), true)
+  assert.equal(canFulfillQuantity(3, 4), false, 'Limited stock blocks purchasing more than available')
+  assert.equal(canFulfillQuantity(0, 1), false, 'Out of stock blocks purchase')
+
+  const unlimitedStorefront = getStorefrontStockState(-1)
+  assert.equal(unlimitedStorefront.isOutOfStock, false)
+  assert.equal(unlimitedStorefront.isUnlimited, true)
+  assert.equal(unlimitedStorefront.maxPurchasableQty, null)
+})
+
+test('Admin Product Service updates product information, preserves ID and URL slug, and switches between Limited and Unlimited stock', async () => {
+  const productsStore: Record<string, any> = {
+    prod_1: {
+      id: 'prod_1',
+      name: 'Classic Solitaire Ring',
+      nameEs: 'Anillo Solitario Clásico',
+      slug: 'classic-solitaire-ring',
+      description: 'Original description',
+      descriptionEs: 'Descripción original',
+      price: 1200,
+      comparePrice: 1500,
+      category: 'rings',
+      metalType: 'gold',
+      karat: '14k',
+      stoneType: 'natural',
+      images: JSON.stringify(['/ring-1.jpg']),
+      weight: '3.2g',
+      length: null,
+      sizes: JSON.stringify(['6', '7']),
+      isActive: true,
+      isFeatured: true,
+      isBestSeller: false,
+      inventoryQty: 10,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  }
+  const siteSettingsStore: Record<string, any> = {}
+
+  const mockProductDb: any = {
+    product: {
+      findUnique: async ({ where }: any) => {
+        if (where.id) return productsStore[where.id] ? structuredClone(productsStore[where.id]) : null
+        if (where.slug) {
+          const found = Object.values(productsStore).find((p: any) => p.slug === where.slug)
+          return found ? structuredClone(found) : null
+        }
+        return null
+      },
+      update: async ({ where, data }: any) => {
+        const existing = productsStore[where.id]
+        if (!existing) throw new Error('Not found')
+        const updated = { ...existing, ...data, updatedAt: new Date() }
+        productsStore[where.id] = updated
+        return structuredClone(updated)
+      },
+    },
+    siteSettings: {
+      findUnique: async ({ where }: any) => siteSettingsStore[where.id] || null,
+      upsert: async ({ where, create, update }: any) => {
+        const next = siteSettingsStore[where.id]
+          ? { ...siteSettingsStore[where.id], ...update }
+          : create
+        siteSettingsStore[where.id] = next
+        return structuredClone(next)
+      },
+    },
+  }
+
+  const productService = createAdminProductService(mockProductDb)
+
+  // 1. Update full product info + switch to Unlimited Stock while preserving ID and slug
+  const updatedRes = await productService.updateProduct({
+    id: 'prod_1',
+    name: '18K Diamond Halo Ring',
+    nameEs: 'Anillo Halo de Diamante 18K',
+    description: 'Updated luxury 18K ring description',
+    descriptionEs: 'Descripción actualizada de anillo 18K',
+    sku: 'MG-HALO-18K',
+    category: 'rings',
+    price: 2450,
+    comparePrice: 2800,
+    images: ['/ring-new-1.jpg', '/ring-new-2.jpg'],
+    material: '18K Gold',
+    metalColor: 'White Gold',
+    stoneType: 'natural',
+    weight: '4.5g',
+    sizes: ['5', '6', '7', '8'],
+    lengths: ['18"'],
+    variations: ['Pavé Band', 'Plain Band'],
+    isActive: true,
+    stockMode: 'unlimited',
+  })
+
+  const updatedUnlimited = updatedRes.product
+  assert.equal(updatedUnlimited.id, 'prod_1', 'Product ID must be preserved')
+  assert.equal(updatedUnlimited.slug, 'classic-solitaire-ring', 'Product URL slug must be preserved even when SKU changes')
+  assert.equal(updatedUnlimited.sku, 'MG-HALO-18K')
+  assert.equal(updatedUnlimited.name, '18K Diamond Halo Ring')
+  assert.equal(updatedUnlimited.price, 2450)
+  assert.equal(updatedUnlimited.karat, '18K Gold')
+  assert.equal(updatedUnlimited.metalColor, 'White Gold')
+  assert.deepEqual(updatedUnlimited.images, ['/ring-new-1.jpg', '/ring-new-2.jpg'])
+  assert.deepEqual(updatedUnlimited.sizes, ['5', '6', '7', '8'])
+  assert.deepEqual(updatedUnlimited.variations, ['Pavé Band', 'Plain Band'])
+  assert.equal(updatedUnlimited.stock, UNLIMITED_STOCK_SENTINEL)
+  assert.equal(updatedUnlimited.stockDisplay.label, 'Unlimited')
+
+  // 2. Switch to Limited Stock with 2 units -> displays Low Stock (2)
+  const updatedLowStockRes = await productService.updateInventory({
+    productId: 'prod_1',
+    stockMode: 'limited',
+    quantity: 2,
+    lowStockThreshold: 3,
+  })
+  assert.equal(updatedLowStockRes.product.stock, 2)
+  assert.equal(updatedLowStockRes.product.stockDisplay.label, 'Low Stock (2)')
+
+  // 3. Deactivate product -> sets isActive = false
+  const deactivatedRes = await productService.setProductStatus('prod_1', false)
+  assert.equal(deactivatedRes.product.isActive, false)
+})
+
+test('Unlimited stock items are never incremented when an order reservation is released or restocked', async () => {
+  const f = fixture()
+  // Order with 1 limited item and 1 unlimited item
+  f.state().order.items = [
+    { productId: 'p_limited', quantity: 2, options: JSON.stringify({ stockMode: 'limited' }) },
+    { productId: 'p_unlimited', quantity: 3, options: JSON.stringify({ stockMode: 'unlimited' }) },
+  ]
+  f.session.status = 'expired'
+
+  await f.service.cancel('cs_1')
+  assert.equal(f.state().order.reservationStatus, 'released')
+  assert.equal(f.state().stock, 2, 'Only the 2 limited-stock units must be incremented; unlimited item must not increment stock')
+})
+
+test('restockOrderInventory restores limited stock once and is idempotent on repeated calls', async () => {
+  const f = fixture()
+  f.paid()
+  await f.service.processEvent(f.event('checkout.session.completed'))
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+  assert.equal(f.state().stock, 0)
+
+  const [r1, r2] = await Promise.all([
+    f.service.restockOrderInventory('o1', 'Order canceled & restocked by admin'),
+    f.service.restockOrderInventory('o1', 'Duplicate restock click'),
+  ])
+
+  assert.equal(f.state().stock, 1, 'Stock must be restored exactly once')
+  assert.equal(f.state().order.reservationStatus, 'restocked')
+  const restockedFlags = [r1.restocked, r2.restocked].sort()
+  assert.deepEqual(restockedFlags, [false, true])
 })

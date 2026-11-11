@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import { CollectionContent } from './collection-content'
 import { db } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 // Collections Metadata mapping
 const collections: Record<string, { name: string; nameEs: string; description: string; descriptionEs: string }> = {
   'best-sellers': {

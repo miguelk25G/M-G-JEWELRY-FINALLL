@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe"
 import { calculateOrderTotals, isTexasAddress, isUsAddress } from "@/lib/config/pricing"
 import Stripe from "stripe"
 import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
+import { isUnlimitedStock } from "@/lib/inventory"
 
 export interface CartItemInput {
   productId: string
@@ -19,6 +20,9 @@ export interface CatalogItemDetails {
   slug: string
   admitsSizes: boolean
   availableSizes: string[]
+  inventoryQty?: number
+  isUnlimited?: boolean
+  price?: number
 }
 
 export interface CartItemCompatibilityIssue {
@@ -26,14 +30,15 @@ export interface CartItemCompatibilityIssue {
   productId: string
   name: string
   slug?: string
-  type: 'has_no_sizes' | 'invalid_size' | 'missing_size' | 'unavailable'
+  type: 'has_no_sizes' | 'invalid_size' | 'missing_size' | 'unavailable' | 'insufficient_stock'
   message: string
   availableSizes?: string[]
+  availableQty?: number
 }
 
 /**
  * Validates cart items against current database products before checkout.
- * Checks availability, builds catalog mapping, and flags any outdated/incompatible sizes.
+ * Checks availability, builds catalog mapping, and flags any outdated/incompatible sizes or insufficient stock.
  */
 export async function checkCartItemsCompatibility(items: CartItemInput[]) {
   try {
@@ -42,7 +47,7 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
     const productIds = items.map((i) => i.productId).filter(Boolean)
     const products = await db.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, nameEs: true, slug: true, sizes: true, isActive: true },
+      select: { id: true, name: true, nameEs: true, slug: true, sizes: true, isActive: true, inventoryQty: true, price: true },
     })
 
     const pMap = new Map(products.map((p) => [p.id, p]))
@@ -65,7 +70,19 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
         slug: p.slug,
         admitsSizes: sizes.length > 0,
         availableSizes: sizes,
+        inventoryQty: p.inventoryQty,
+        isUnlimited: isUnlimitedStock(p.inventoryQty),
+        price: p.price,
       }
+    }
+
+    // Track total requested quantity per product across cart lines
+    const requestedTotalsByProduct = new Map<string, number>()
+    for (const item of items) {
+      requestedTotalsByProduct.set(
+        item.productId,
+        (requestedTotalsByProduct.get(item.productId) || 0) + (item.quantity || 0)
+      )
     }
 
     for (const item of items) {
@@ -80,6 +97,32 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
           message: 'Product is unavailable',
         })
         continue
+      }
+
+      if (!isUnlimitedStock(p.inventoryQty)) {
+        const totalReq = requestedTotalsByProduct.get(item.productId) || item.quantity
+        if (p.inventoryQty <= 0) {
+          issues.push({
+            cartItemId: item.id,
+            productId: item.productId,
+            name: p.name,
+            slug: p.slug,
+            type: 'unavailable',
+            message: 'Out of Stock',
+            availableQty: 0,
+          })
+          continue
+        } else if (totalReq > p.inventoryQty) {
+          issues.push({
+            cartItemId: item.id,
+            productId: item.productId,
+            name: p.name,
+            slug: p.slug,
+            type: 'insufficient_stock',
+            message: `Only ${p.inventoryQty} available in stock (you requested ${totalReq}).`,
+            availableQty: p.inventoryQty,
+          })
+        }
       }
 
       const catDetails = catalogMap[item.productId]
@@ -206,6 +249,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         quantity: number
         size?: string
         unitPrice: number
+        stockMode: "limited" | "unlimited"
       }[] = []
 
       let rawSubtotal = 0
@@ -226,22 +270,40 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         }
         if (product.currency.toUpperCase() !== "USD" || !Number.isFinite(product.price) || product.price <= 0) throw new Error("Invalid product price or currency")
 
-        // Atomically decrement inventory with strict condition: inventoryQty >= requested quantity
-        const updateResult = await tx.product.updateMany({
-          where: {
-            id: product.id,
-            inventoryQty: { gte: item.quantity },
-            isActive: true,
-          },
-          data: {
-            inventoryQty: { decrement: item.quantity },
-          },
-        })
+        const isUnlimited = isUnlimitedStock(product.inventoryQty)
 
-        if (updateResult.count === 0) {
-          throw new Error(
-            `No hay inventario suficiente para "${product.name}". (Disponibles: ${product.inventoryQty})`
-          )
+        if (isUnlimited) {
+          // Unlimited stock mode: verify product is still active and in unlimited mode without decrementing inventoryQty
+          const unlimitedActive = await tx.product.findFirst({
+            where: {
+              id: product.id,
+              isActive: true,
+              inventoryQty: { lt: 0 },
+            },
+          })
+          if (!unlimitedActive) {
+            throw new Error(`El producto "${product.name}" ya no se encuentra disponible.`)
+          }
+        } else {
+          // Limited stock mode: atomically decrement inventory with strict condition: inventoryQty >= requested quantity
+          const updateResult = await tx.product.updateMany({
+            where: {
+              id: product.id,
+              inventoryQty: { gte: item.quantity },
+              isActive: true,
+            },
+            data: {
+              inventoryQty: { decrement: item.quantity },
+            },
+          })
+
+          if (updateResult.count === 0) {
+            const latestProd = await tx.product.findUnique({ where: { id: product.id } })
+            const availQty = latestProd && latestProd.inventoryQty >= 0 ? latestProd.inventoryQty : 0
+            throw new Error(
+              `No hay inventario suficiente para "${product.name}". (Disponibles: ${availQty})`
+            )
+          }
         }
 
         const unitPrice = product.price
@@ -252,6 +314,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
           quantity: item.quantity,
           size: item.size,
           unitPrice,
+          stockMode: isUnlimited ? "unlimited" : "limited",
         })
       }
 
@@ -332,6 +395,7 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
               quantity: vi.quantity,
               price: vi.unitPrice,
               size: vi.size || null,
+              options: JSON.stringify({ stockMode: vi.stockMode }),
             })),
           },
         },

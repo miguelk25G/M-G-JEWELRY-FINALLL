@@ -73,6 +73,28 @@ export function createPaymentService(db: any, stripe: any) {
       }
     }
   }
+  async function shouldRestockItem(tx: any, item: any): Promise<boolean> {
+    if (!item || !item.productId) return false
+    if (item.options) {
+      try {
+        const parsed = typeof item.options === 'string' ? JSON.parse(item.options) : item.options
+        if (parsed && parsed.stockMode === 'unlimited') return false
+      } catch {
+        // Ignore invalid options JSON
+      }
+    }
+    if (tx.product && typeof tx.product.findUnique === 'function') {
+      try {
+        const currentProduct = await tx.product.findUnique({ where: { id: item.productId } })
+        if (currentProduct && typeof currentProduct.inventoryQty === 'number' && currentProduct.inventoryQty < 0) {
+          return false
+        }
+      } catch {
+        // Fallback to standard update if findUnique is not supported in mock
+      }
+    }
+    return true
+  }
   async function release(tx: any, order: any, reason?: string) {
     const data: any = { reservationStatus: 'released', paymentStatus: 'failed', status: 'cancelled' }
     if (reason) data.notes = reason
@@ -82,7 +104,9 @@ export function createPaymentService(db: any, stripe: any) {
     })
     if (!changed.count) return { released: false, count: 0 }
     for (const item of order.items) {
-      if (item.productId) await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
+      if (await shouldRestockItem(tx, item)) {
+        await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
+      }
     }
     await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', status: 'pending' }, data: { status: 'failed' } })
     return { released: true, count: changed.count }
@@ -535,7 +559,34 @@ export function createPaymentService(db: any, stripe: any) {
     })
   }
 
-  return { processEvent, reconcile, cancel, releaseReservation, recoverOrphanSession, registerCheckoutSession }
+  async function restockOrderInventory(orderId: string, reason?: string) {
+    return await atomic(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } })
+      if (!order) throw new Error('Order not found.')
+      if (order.reservationStatus === 'reserved' && order.paymentStatus === 'pending') {
+        return await release(tx, order, reason || 'Inventario liberado tras cancelación')
+      }
+      if (order.reservationStatus !== 'consumed') {
+        return { restocked: false, count: 0, reason: 'Order does not have consumed inventory to restock.' }
+      }
+      const nextNotes = reason
+        ? (order.notes ? `${order.notes} | ${reason}` : reason)
+        : order.notes
+      const changed = await tx.order.updateMany({
+        where: { id: order.id, reservationStatus: 'consumed' },
+        data: { reservationStatus: 'restocked', notes: nextNotes },
+      })
+      if (!changed.count) return { restocked: false, count: 0 }
+      for (const item of order.items) {
+        if (await shouldRestockItem(tx, item)) {
+          await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
+        }
+      }
+      return { restocked: true, count: changed.count }
+    })
+  }
+
+  return { processEvent, reconcile, cancel, releaseReservation, recoverOrphanSession, registerCheckoutSession, restockOrderInventory }
 }
 
 export function createWebhookHandler(getService: () => any, getStripe: () => any, getSecret: () => string | undefined) {
