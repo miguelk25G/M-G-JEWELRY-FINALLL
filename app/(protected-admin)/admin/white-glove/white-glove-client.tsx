@@ -196,7 +196,7 @@ export function WhiteGloveClient({
         adminNotes: notes,
         orderId: selectedRequest?.id === targetId ? draftOrderId : undefined,
         channel: draftChannel as import("@/lib/white-glove-shared").WhiteGloveContactMethod,
-        note: draftContactNote,
+        note: selectedRequest?.id === targetId ? draftContactNote : undefined,
       })
 
       if (!res.success || !res.request) {

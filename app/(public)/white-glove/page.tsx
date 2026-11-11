@@ -179,7 +179,7 @@ export default function WhiteGlovePage() {
 
     // Auto advance except for the last step
     if (step < QUESTIONS.length - 1) {
-      setTimeout(() => setStep((s) => Math.min(QUESTIONS.length - 1, s + 1)), 300)
+      setTimeout(() => setStep(Math.min(QUESTIONS.length - 1, step + 1)), 300)
     }
   }
 
