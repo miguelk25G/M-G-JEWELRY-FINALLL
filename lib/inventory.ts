@@ -36,11 +36,18 @@ export interface StorefrontStockState {
 
 export interface ProductExtendedMeta {
   sku?: string
+  variantSkus?: Record<string, string>
   material?: string
   metalColor?: string
   lengths?: string[]
   variations?: string[]
   lowStockThreshold?: number
+}
+
+export interface VariantSkuSelection {
+  size?: string | null
+  length?: string | null
+  variation?: string | null
 }
 
 export interface CatalogMetadataStore {
@@ -321,4 +328,179 @@ export function serializeCatalogMetadata(store: CatalogMetadataStore): string {
     lowStockThreshold: normalizeLowStockThreshold(store.lowStockThreshold),
     products: store.products || {},
   })
+}
+
+/**
+ * Resolves the real SKU saved for a product without ever falling back to the URL slug
+ * or generating invented codes.
+ * - Returns null if rawSku is empty, whitespace-only, identical to the product's URL slug,
+ *   or an incomplete trailing-hyphen slug artifact (such as "cuban-bracelet-").
+ */
+export function resolveRealProductSku(
+  rawSku?: string | null,
+  slug?: string | null
+): string | null {
+  if (rawSku === undefined || rawSku === null) return null
+  const cleanSku = String(rawSku).trim()
+  if (!cleanSku) return null
+
+  const cleanSlug = String(slug || "").trim()
+  if (cleanSlug && cleanSku.toLowerCase() === cleanSlug.toLowerCase()) {
+    return null
+  }
+
+  // Filter out incomplete slug artifacts ending with a trailing hyphen (e.g., "cuban-bracelet-")
+  if (
+    cleanSku.endsWith("-") &&
+    (/^[a-z0-9]+(-[a-z0-9]+)*-$/.test(cleanSku) ||
+      (cleanSlug && cleanSlug.toLowerCase().startsWith(cleanSku.toLowerCase())))
+  ) {
+    return null
+  }
+
+  return cleanSku
+}
+
+/**
+ * Extracts a clean display label and an optional inline SKU if a variant string
+ * uses inline notation such as:
+ * - "7\" (SKU: MG-CB-7)"
+ * - "7\" [SKU: MG-CB-7]"
+ * - "18\" :: MG-CHAIN-18"
+ */
+export function parseVariantOptionAndSku(rawOption: string): {
+  label: string
+  inlineSku: string | null
+} {
+  const str = String(rawOption || "").trim()
+  if (!str) return { label: "", inlineSku: null }
+
+  const parenMatch = str.match(/^(.*?)\s*\(\s*SKU\s*:\s*([^)]+)\)\s*$/i)
+  if (parenMatch) {
+    const label = parenMatch[1].trim()
+    const inlineSku = parenMatch[2].trim()
+    return { label: label || str, inlineSku: inlineSku || null }
+  }
+
+  const bracketMatch = str.match(/^(.*?)\s*\[\s*SKU\s*:\s*([^\]]+)\]\s*$/i)
+  if (bracketMatch) {
+    const label = bracketMatch[1].trim()
+    const inlineSku = bracketMatch[2].trim()
+    return { label: label || str, inlineSku: inlineSku || null }
+  }
+
+  const doubleColonMatch = str.match(/^(.*?)\s*::\s*(.+)$/)
+  if (doubleColonMatch) {
+    const label = doubleColonMatch[1].trim()
+    const inlineSku = doubleColonMatch[2].trim()
+    return { label: label || str, inlineSku: inlineSku || null }
+  }
+
+  return { label: str, inlineSku: null }
+}
+
+/**
+ * Normalizes a variantSkus dictionary, stripping empty keys/values and slug fallbacks.
+ */
+export function normalizeVariantSkusMap(
+  rawMap?: Record<string, string> | null,
+  slug?: string | null
+): Record<string, string> {
+  if (!rawMap || typeof rawMap !== "object") return {}
+  const out: Record<string, string> = {}
+  for (const [key, val] of Object.entries(rawMap)) {
+    const cleanKey = String(key || "").trim()
+    const realSku = resolveRealProductSku(val, slug)
+    if (cleanKey && realSku) {
+      out[cleanKey] = realSku
+    }
+  }
+  return out
+}
+
+/**
+ * Resolves the active SKU to display on the Product Detail page:
+ * - If the selected variant (size, length, or variation) has its own SKU in variantSkus
+ *   or inline notation, returns that variant's real SKU.
+ * - Otherwise returns the product's real base SKU.
+ * - Returns null if no real SKU exists (so the UI hides the SKU row).
+ */
+export function resolveActiveProductSku(params: {
+  baseSku?: string | null
+  slug?: string | null
+  variantSkus?: Record<string, string> | null
+  selection?: VariantSkuSelection
+}): string | null {
+  const { baseSku, slug, variantSkus, selection } = params
+  const cleanMap = normalizeVariantSkusMap(variantSkus, slug)
+
+  // Build case-insensitive lookup table for variantSkus
+  const lowerLookup = new Map<string, string>()
+  for (const [k, v] of Object.entries(cleanMap)) {
+    lowerLookup.set(k.toLowerCase(), v)
+  }
+
+  if (selection) {
+    const rawSize = selection.size ? String(selection.size).trim() : ""
+    const rawLength = selection.length ? String(selection.length).trim() : ""
+    const rawVariation = selection.variation ? String(selection.variation).trim() : ""
+
+    const parsedSize = parseVariantOptionAndSku(rawSize)
+    const parsedLength = parseVariantOptionAndSku(rawLength)
+    const parsedVariation = parseVariantOptionAndSku(rawVariation)
+
+    // 1. Check combined variant keys first (most specific)
+    const combinedCandidates = [
+      [parsedSize.label, parsedLength.label, parsedVariation.label].filter(Boolean).join("|"),
+      [rawSize, rawLength, rawVariation].filter(Boolean).join("|"),
+    ].filter(Boolean)
+
+    for (const candidate of combinedCandidates) {
+      const hit = lowerLookup.get(candidate.toLowerCase())
+      if (hit) return hit
+    }
+
+    // 2. Check specific selected variant dimensions (variation -> length -> size)
+    const singleCandidates: string[] = []
+    if (rawVariation) {
+      singleCandidates.push(
+        `variation:${rawVariation}`,
+        `variation:${parsedVariation.label}`,
+        rawVariation,
+        parsedVariation.label
+      )
+    }
+    if (rawLength) {
+      singleCandidates.push(
+        `length:${rawLength}`,
+        `length:${parsedLength.label}`,
+        rawLength,
+        parsedLength.label
+      )
+    }
+    if (rawSize) {
+      singleCandidates.push(
+        `size:${rawSize}`,
+        `size:${parsedSize.label}`,
+        rawSize,
+        parsedSize.label
+      )
+    }
+
+    for (const candidate of singleCandidates) {
+      const hit = lowerLookup.get(candidate.toLowerCase())
+      if (hit) return hit
+    }
+
+    // 3. Check inline SKU embedded in the selected option string
+    const inlineHit =
+      resolveRealProductSku(parsedVariation.inlineSku, slug) ||
+      resolveRealProductSku(parsedLength.inlineSku, slug) ||
+      resolveRealProductSku(parsedSize.inlineSku, slug)
+    if (inlineHit) {
+      return inlineHit
+    }
+  }
+
+  return resolveRealProductSku(baseSku, slug)
 }

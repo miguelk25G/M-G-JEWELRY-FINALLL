@@ -13,7 +13,11 @@ import { useCartStore } from '@/lib/store/cart-store'
 import { useFavoritesStore } from '@/lib/store/favorites-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
-import { getStorefrontStockState } from '@/lib/inventory'
+import {
+  getStorefrontStockState,
+  parseVariantOptionAndSku,
+  resolveActiveProductSku,
+} from '@/lib/inventory'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -22,7 +26,8 @@ interface Product {
   name: string
   nameEs: string | null
   slug: string
-  sku?: string
+  sku?: string | null
+  variantSkus?: Record<string, string> | null
   description: string
   descriptionEs: string | null
   price: number
@@ -92,10 +97,29 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
   })()
 
   const hasSizes = availableSizes.length > 0
+  const availableLengths: string[] = Array.isArray(product.lengths)
+    ? product.lengths.map((l) => String(l).trim()).filter(Boolean)
+    : []
+  const availableVariations: string[] = Array.isArray(product.variations)
+    ? product.variations.map((v) => String(v).trim()).filter(Boolean)
+    : []
 
   const [selectedImage, setSelectedImage] = useState(0)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
+  const [selectedLength, setSelectedLength] = useState<string | null>(null)
+  const [selectedVariation, setSelectedVariation] = useState<string | null>(null)
   const [quantity, setQuantity] = useState(1)
+
+  const activeSku = resolveActiveProductSku({
+    baseSku: product.sku,
+    slug: product.slug,
+    variantSkus: product.variantSkus,
+    selection: {
+      size: selectedSize,
+      length: selectedLength,
+      variation: selectedVariation,
+    },
+  })
 
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
   const displayDescription = locale === 'es' && product.descriptionEs ? product.descriptionEs : product.description
@@ -274,20 +298,86 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                   {t('product.size')}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {availableSizes.map((size) => (
-                    <button
-                      key={size}
-                      onClick={() => setSelectedSize(size)}
-                      className={cn(
-                        'flex h-10 min-w-12 px-3 items-center justify-center rounded-md border text-sm transition-colors',
-                        selectedSize === size
-                          ? 'border-foreground bg-foreground text-background'
-                          : 'border-border bg-transparent hover:border-foreground'
-                      )}
-                    >
-                      {size}
-                    </button>
-                  ))}
+                  {availableSizes.map((size) => {
+                    const { label } = parseVariantOptionAndSku(size)
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setSelectedSize(size)}
+                        className={cn(
+                          'flex h-10 min-w-12 px-3 items-center justify-center rounded-md border text-sm transition-colors',
+                          selectedSize === size
+                            ? 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-transparent hover:border-foreground'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Length Variant Selection */}
+            {availableLengths.length > 0 && (
+              <div>
+                <label className="mb-3 block text-sm font-medium text-foreground">
+                  {locale === 'es' ? 'Largo' : 'Length'}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {availableLengths.map((lenOpt) => {
+                    const { label } = parseVariantOptionAndSku(lenOpt)
+                    return (
+                      <button
+                        key={lenOpt}
+                        type="button"
+                        onClick={() =>
+                          setSelectedLength((prev) => (prev === lenOpt ? null : lenOpt))
+                        }
+                        className={cn(
+                          'flex h-10 min-w-12 px-3 items-center justify-center rounded-md border text-sm transition-colors',
+                          selectedLength === lenOpt
+                            ? 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-transparent hover:border-foreground'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Variation Selection */}
+            {availableVariations.length > 0 && (
+              <div>
+                <label className="mb-3 block text-sm font-medium text-foreground">
+                  {locale === 'es' ? 'Variación' : 'Variation'}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {availableVariations.map((varOpt) => {
+                    const { label } = parseVariantOptionAndSku(varOpt)
+                    return (
+                      <button
+                        key={varOpt}
+                        type="button"
+                        onClick={() =>
+                          setSelectedVariation((prev) => (prev === varOpt ? null : varOpt))
+                        }
+                        className={cn(
+                          'flex h-10 px-3 items-center justify-center rounded-md border text-sm transition-colors',
+                          selectedVariation === varOpt
+                            ? 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-transparent hover:border-foreground'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -369,53 +459,62 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             {/* Specifications */}
             <div className="rounded-lg border border-border bg-card p-4">
               <h3 className="mb-3 font-medium text-foreground">{t('product.specifications')}</h3>
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                {product.sku && (
+              <dl className="grid grid-cols-[minmax(110px,auto)_minmax(0,1fr)] sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                {activeSku && (
                   <>
                     <dt className="text-muted-foreground">SKU</dt>
-                    <dd className="text-foreground font-mono text-xs">{product.sku}</dd>
+                    <dd
+                      data-testid="product-detail-sku"
+                      className="min-w-0 text-foreground font-mono text-xs sm:text-sm leading-relaxed break-words [overflow-wrap:anywhere] whitespace-normal"
+                    >
+                      {activeSku}
+                    </dd>
                   </>
                 )}
                 <dt className="text-muted-foreground">{t('product.metal')}</dt>
-                <dd className="text-foreground capitalize">{product.metalType}</dd>
+                <dd className="min-w-0 text-foreground capitalize break-words">{product.metalType}</dd>
                 {product.karat && (
                   <>
                     <dt className="text-muted-foreground">{t('product.karat')}</dt>
-                    <dd className="text-foreground uppercase">{product.karat}</dd>
+                    <dd className="min-w-0 text-foreground uppercase break-words">{product.karat}</dd>
                   </>
                 )}
                 {product.stoneType && product.stoneType !== 'none' && (
                   <>
                     <dt className="text-muted-foreground">{t('product.stone')}</dt>
-                    <dd className="text-foreground capitalize">{product.stoneType} Diamond</dd>
+                    <dd className="min-w-0 text-foreground capitalize break-words">{product.stoneType} Diamond</dd>
                   </>
                 )}
                 {product.weight && (
                   <>
                     <dt className="text-muted-foreground">{t('product.weight')}</dt>
-                    <dd className="text-foreground">{product.weight}g</dd>
+                    <dd className="min-w-0 text-foreground break-words">{product.weight}g</dd>
                   </>
                 )}
                 {product.length && (
                   <>
                     <dt className="text-muted-foreground">{t('product.length')}</dt>
-                    <dd className="text-foreground">{product.length}&quot;</dd>
+                    <dd className="min-w-0 text-foreground break-words">{product.length}&quot;</dd>
                   </>
                 )}
-                {product.lengths && product.lengths.length > 0 && (
+                {availableLengths.length > 0 && (
                   <>
                     <dt className="text-muted-foreground">
                       {locale === 'es' ? 'Largos disponibles' : 'Available Lengths'}
                     </dt>
-                    <dd className="text-foreground">{product.lengths.join(', ')}</dd>
+                    <dd className="min-w-0 text-foreground break-words">
+                      {availableLengths.map((l) => parseVariantOptionAndSku(l).label).join(', ')}
+                    </dd>
                   </>
                 )}
-                {product.variations && product.variations.length > 0 && (
+                {availableVariations.length > 0 && (
                   <>
                     <dt className="text-muted-foreground">
                       {locale === 'es' ? 'Variaciones' : 'Variations'}
                     </dt>
-                    <dd className="text-foreground">{product.variations.join(', ')}</dd>
+                    <dd className="min-w-0 text-foreground break-words">
+                      {availableVariations.map((v) => parseVariantOptionAndSku(v).label).join(', ')}
+                    </dd>
                   </>
                 )}
               </dl>

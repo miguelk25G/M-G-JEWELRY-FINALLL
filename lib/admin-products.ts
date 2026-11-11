@@ -12,9 +12,11 @@ import {
   normalizeCategory,
   normalizeInventoryInput,
   normalizeLowStockThreshold,
+  normalizeVariantSkusMap,
   parseCatalogMetadata,
   parseImagesList,
   parseStringList,
+  resolveRealProductSku,
   serializeCatalogMetadata,
 } from "@/lib/inventory"
 
@@ -25,6 +27,7 @@ export interface UpdateProductInput {
   description: string
   descriptionEs?: string | null
   sku?: string | null
+  variantSkus?: Record<string, string> | null
   category: string
   price: number | string
   comparePrice?: number | string | null
@@ -118,12 +121,16 @@ export function createAdminProductService(db: any) {
     )
     const stockDisplay = getAdminStockDisplay(p.inventoryQty, threshold)
 
+    const realSku = resolveRealProductSku(prodMeta.sku, p.slug)
+    const variantSkus = normalizeVariantSkusMap(prodMeta.variantSkus, p.slug)
+
     return {
       id: p.id,
       name: p.name,
       nameEs: p.nameEs || "",
       slug: p.slug,
-      sku: prodMeta.sku || p.slug,
+      sku: realSku || "",
+      variantSkus,
       description: p.description || "",
       descriptionEs: p.descriptionEs || "",
       category: normalizeCategory(p.category),
@@ -245,14 +252,19 @@ export function createAdminProductService(db: any) {
       },
     })
 
-    // Update extended catalog metadata (SKU, material, metalColor, lengths, variations, threshold)
+    // Update extended catalog metadata (SKU, variantSkus, material, metalColor, lengths, variations, threshold)
     const metaStore = await getCatalogMetadata()
     const currentMeta = metaStore.products[existing.id] || {}
-    const cleanSku = String(input.sku ?? currentMeta.sku ?? existing.slug).trim() || existing.slug
+    const rawSku = input.sku !== undefined ? input.sku : currentMeta.sku
+    const cleanSku = resolveRealProductSku(rawSku, existing.slug) || undefined
+    const rawVariantSkus =
+      input.variantSkus !== undefined ? input.variantSkus : currentMeta.variantSkus
+    const cleanVariantSkus = normalizeVariantSkusMap(rawVariantSkus, existing.slug)
 
     const updatedMeta: ProductExtendedMeta = {
       ...currentMeta,
       sku: cleanSku,
+      variantSkus: Object.keys(cleanVariantSkus).length > 0 ? cleanVariantSkus : undefined,
       material: materialStr || undefined,
       metalColor: metalColorStr || undefined,
       lengths: lengthsList,

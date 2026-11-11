@@ -85,6 +85,7 @@ export type AdminProductItem = {
   nameEs?: string
   slug: string
   sku: string
+  variantSkus?: Record<string, string>
   description: string
   descriptionEs?: string
   category: string
@@ -516,8 +517,8 @@ export function ProductsClient({
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-muted-foreground font-mono text-xs">
-                        {product.sku}
+                      <TableCell className="text-muted-foreground font-mono text-xs max-w-[180px] break-words [overflow-wrap:anywhere] whitespace-normal">
+                        {product.sku || "—"}
                       </TableCell>
                       <TableCell className="capitalize">
                         {product.categoryLabel || formatCategoryLabel(product.category)}
@@ -715,6 +716,7 @@ function EditProductDialog({
   const [description, setDescription] = useState("")
   const [descriptionEs, setDescriptionEs] = useState("")
   const [sku, setSku] = useState("")
+  const [variantSkus, setVariantSkus] = useState<Record<string, string>>({})
   const [category, setCategory] = useState("rings")
   const [price, setPrice] = useState("")
   const [comparePrice, setComparePrice] = useState("")
@@ -750,7 +752,8 @@ function EditProductDialog({
     setNameEs(product.nameEs || "")
     setDescription(product.description || "")
     setDescriptionEs(product.descriptionEs || "")
-    setSku(product.sku || product.slug || "")
+    setSku(product.sku || "")
+    setVariantSkus(product.variantSkus ? { ...product.variantSkus } : {})
     setCategory((product.category || "rings").toLowerCase())
     setPrice(String(product.price ?? ""))
     setComparePrice(product.comparePrice ? String(product.comparePrice) : "")
@@ -935,7 +938,8 @@ function EditProductDialog({
         nameEs: nameEs.trim() || null,
         description: description.trim(),
         descriptionEs: descriptionEs.trim() || null,
-        sku: sku.trim() || product.slug,
+        sku: sku.trim(),
+        variantSkus,
         category,
         price: parsedPrice,
         comparePrice: comparePrice.trim() ? Number(comparePrice) : null,
@@ -1040,13 +1044,12 @@ function EditProductDialog({
 
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-sku">SKU *</Label>
+                <Label htmlFor="edit-sku">SKU</Label>
                 <Input
                   id="edit-sku"
                   value={sku}
                   onChange={(e) => setSku(e.target.value)}
-                  required
-                  placeholder="e.g. MG-CHAIN-14K"
+                  placeholder="e.g. MG-CHAIN-14K (leave empty if none)"
                   className="font-mono text-sm"
                 />
               </div>
@@ -1556,6 +1559,45 @@ function EditProductDialog({
                   )}
                 </div>
               </div>
+
+              {(sizesList.length > 0 || lengthsList.length > 0 || variationsList.length > 0) && (
+                <div className="rounded-lg border border-border bg-card/40 p-3.5 space-y-2.5 mt-2">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">
+                      Per-Variant SKUs (Optional)
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      If specific sizes, lengths, or variations have their own SKU, enter them below. The storefront will automatically update the SKU when the customer selects that variant.
+                    </p>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-2.5">
+                    {Array.from(new Set([...sizesList, ...lengthsList, ...variationsList])).map(
+                      (variantOpt) => (
+                        <div key={variantOpt} className="flex items-center gap-2">
+                          <span
+                            className="text-xs font-medium text-muted-foreground min-w-[75px] truncate"
+                            title={variantOpt}
+                          >
+                            {variantOpt}
+                          </span>
+                          <Input
+                            value={variantSkus[variantOpt] || ""}
+                            onChange={(e) => {
+                              const nextVal = e.target.value
+                              setVariantSkus((prev) => ({
+                                ...prev,
+                                [variantOpt]: nextVal,
+                              }))
+                            }}
+                            placeholder={sku ? `${sku}-${variantOpt}` : "Variant SKU (optional)"}
+                            className="h-8 font-mono text-xs"
+                          />
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1789,7 +1831,8 @@ function ManageInventoryDialog({
         <DialogHeader>
           <DialogTitle>Manage Inventory</DialogTitle>
           <DialogDescription>
-            {product?.name} ({product?.sku})
+            {product?.name}
+            {product?.sku ? ` (${product.sku})` : ""}
           </DialogDescription>
         </DialogHeader>
 

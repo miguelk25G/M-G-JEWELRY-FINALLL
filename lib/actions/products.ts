@@ -15,6 +15,7 @@ import {
   normalizeInventoryInput,
   parseImagesList,
   parseStringList,
+  resolveRealProductSku,
 } from "@/lib/inventory"
 
 async function uploadImageFileSafe(file: File): Promise<string> {
@@ -246,11 +247,12 @@ export async function createProductAction(formData: FormData) {
     },
   })
 
-  if (skuInput || material || metalColor) {
+  const realSku = resolveRealProductSku(skuInput, finalSlug)
+  if (realSku || material || metalColor) {
     const service = createAdminProductService(db)
     const metaStore = await service.getCatalogMetadata()
     metaStore.products[product.id] = {
-      sku: skuInput || finalSlug,
+      sku: realSku || undefined,
       material: material || undefined,
       metalColor: metalColor || undefined,
     }

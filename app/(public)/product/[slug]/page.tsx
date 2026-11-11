@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { ProductDetail } from './product-detail'
 import { db } from '@/lib/db'
 import { createAdminProductService } from '@/lib/admin-products'
+import { normalizeVariantSkusMap, resolveRealProductSku } from '@/lib/inventory'
 
 export const dynamic = 'force-dynamic'
 
@@ -79,7 +80,8 @@ export default async function ProductPage({ params }: Props) {
     descriptionEs: product.descriptionEs || product.description,
     karat: prodMeta.material || product.karat || '',
     metalType: prodMeta.metalColor || product.metalType || 'Yellow Gold',
-    sku: prodMeta.sku || product.slug,
+    sku: resolveRealProductSku(prodMeta.sku, product.slug),
+    variantSkus: normalizeVariantSkusMap(prodMeta.variantSkus, product.slug),
     lengths: prodMeta.lengths || [],
     variations: prodMeta.variations || [],
     lowStockThreshold,

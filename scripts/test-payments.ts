@@ -11,6 +11,9 @@ import {
   canFulfillQuantity,
   normalizeInventoryInput,
   adjustLimitedStock,
+  resolveRealProductSku,
+  resolveActiveProductSku,
+  parseVariantOptionAndSku,
 } from '../lib/inventory'
 
 // Contract tests: actual production service/HTTP handler, fake Stripe transport
@@ -1030,4 +1033,156 @@ test('restockOrderInventory restores limited stock once and is idempotent on rep
   assert.equal(f.state().order.reservationStatus, 'restocked')
   const restockedFlags = [r1.restocked, r2.restocked].sort()
   assert.deepEqual(restockedFlags, [false, true])
+})
+
+test('Real SKU resolution never falls back to slug or incomplete slug artifacts like cuban-bracelet-', () => {
+  // 1. Missing/empty SKU -> null (hide SKU row)
+  assert.equal(resolveRealProductSku(undefined, 'cuban-link-chain-14k'), null)
+  assert.equal(resolveRealProductSku(null, 'cuban-link-chain-14k'), null)
+  assert.equal(resolveRealProductSku('   ', 'cuban-link-chain-14k'), null)
+
+  // 2. Slug or trailing-hyphen slug artifact ("cuban-bracelet-") -> null (never show slug as SKU)
+  assert.equal(resolveRealProductSku('cuban-bracelet-', 'cuban-bracelet-'), null)
+  assert.equal(resolveRealProductSku('cuban-bracelet-', 'cuban-bracelet-14k'), null)
+  assert.equal(resolveRealProductSku('cuban-link-chain-14k', 'cuban-link-chain-14k'), null)
+
+  // 3. Real SKU saved in Admin -> returned completely and intact, including long codes
+  assert.equal(resolveRealProductSku('MG-CB-14K-8IN', 'cuban-bracelet-'), 'MG-CB-14K-8IN')
+  const longSku = 'MG-CUBAN-BRACELET-14K-YELLOW-GOLD-8.5IN-MIAMI-LOCK-2026'
+  assert.equal(resolveRealProductSku(longSku, 'cuban-bracelet-'), longSku)
+})
+
+test('Variant SKU resolution updates dynamically when switching size, length, or variation and sincronizes with Admin', async () => {
+  const productRecord: any = {
+    id: 'prod_cuban_1',
+    name: 'Cuban Bracelet 14K',
+    slug: 'cuban-bracelet-',
+    description: 'Solid 14K Miami Cuban link bracelet',
+    price: 3850,
+    currency: 'USD',
+    metalType: 'Yellow Gold',
+    karat: '14K',
+    stoneType: 'none',
+    category: 'bracelets',
+    images: JSON.stringify(['/cuban.jpg']),
+    isActive: true,
+    inventoryQty: 5,
+    sizes: JSON.stringify(['7"', '7.5"', '8"']),
+  }
+  const siteSettingsStore: Record<string, any> = {}
+  const mockDb: any = {
+    product: {
+      findUnique: async ({ where }: any) =>
+        where.id === productRecord.id ? structuredClone(productRecord) : null,
+      update: async ({ data }: any) => {
+        Object.assign(productRecord, data)
+        return structuredClone(productRecord)
+      },
+    },
+    siteSettings: {
+      findUnique: async ({ where }: any) => siteSettingsStore[where.id] || null,
+      upsert: async ({ where, update, create }: any) => {
+        const next = siteSettingsStore[where.id]
+          ? { ...siteSettingsStore[where.id], ...update }
+          : create
+        siteSettingsStore[where.id] = next
+        return structuredClone(next)
+      },
+    },
+  }
+
+  const productService = createAdminProductService(mockDb)
+
+  // Initially no SKU is saved -> Admin and Storefront both resolve empty/null (never "cuban-bracelet-")
+  const initialAdmin = await productService.formatProductForAdmin(productRecord)
+  assert.equal(initialAdmin.sku, '')
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: initialAdmin.sku,
+      slug: productRecord.slug,
+      variantSkus: initialAdmin.variantSkus,
+    }),
+    null
+  )
+
+  // Save real base SKU + per-variant SKUs in Admin
+  const savedRes = await productService.updateProduct({
+    id: 'prod_cuban_1',
+    name: 'Cuban Bracelet 14K',
+    description: 'Solid 14K Miami Cuban link bracelet',
+    sku: 'MG-CUBAN-BR-14K',
+    variantSkus: {
+      '7"': 'MG-CUBAN-BR-14K-7IN',
+      '7.5"': 'MG-CUBAN-BR-14K-75IN',
+      '8"': 'MG-CUBAN-BR-14K-8IN',
+      'White Gold': 'MG-CUBAN-BR-14K-WG',
+    },
+    category: 'bracelets',
+    price: 3850,
+    images: ['/cuban.jpg'],
+    sizes: ['7"', '7.5"', '8"'],
+    variations: ['Yellow Gold', 'White Gold'],
+    stockMode: 'limited',
+    inventoryQty: 5,
+  })
+
+  const adminProduct = savedRes.product
+  assert.equal(adminProduct.sku, 'MG-CUBAN-BR-14K')
+
+  // Storefront with no variant selected -> shows exact base SKU from Admin
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: adminProduct.sku,
+      slug: adminProduct.slug,
+      variantSkus: adminProduct.variantSkus,
+      selection: {},
+    }),
+    'MG-CUBAN-BR-14K'
+  )
+
+  // Storefront when selecting size 7" -> updates to MG-CUBAN-BR-14K-7IN
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: adminProduct.sku,
+      slug: adminProduct.slug,
+      variantSkus: adminProduct.variantSkus,
+      selection: { size: '7"' },
+    }),
+    'MG-CUBAN-BR-14K-7IN'
+  )
+
+  // Storefront when switching to size 8" -> updates to MG-CUBAN-BR-14K-8IN
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: adminProduct.sku,
+      slug: adminProduct.slug,
+      variantSkus: adminProduct.variantSkus,
+      selection: { size: '8"' },
+    }),
+    'MG-CUBAN-BR-14K-8IN'
+  )
+
+  // Storefront when selecting variation "White Gold" -> updates to MG-CUBAN-BR-14K-WG
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: adminProduct.sku,
+      slug: adminProduct.slug,
+      variantSkus: adminProduct.variantSkus,
+      selection: { variation: 'White Gold' },
+    }),
+    'MG-CUBAN-BR-14K-WG'
+  )
+
+  // Inline variant SKU notation support (e.g. '22" (SKU: MG-CHAIN-22)')
+  const parsedInline = parseVariantOptionAndSku('22" (SKU: MG-CHAIN-22)')
+  assert.equal(parsedInline.label, '22"')
+  assert.equal(parsedInline.inlineSku, 'MG-CHAIN-22')
+  assert.equal(
+    resolveActiveProductSku({
+      baseSku: 'MG-CHAIN-BASE',
+      slug: 'cuban-link-chain',
+      selection: { length: '22" (SKU: MG-CHAIN-22)' },
+    }),
+    'MG-CHAIN-22'
+  )
 })
