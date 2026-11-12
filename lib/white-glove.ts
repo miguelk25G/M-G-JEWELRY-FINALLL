@@ -29,7 +29,7 @@ export const DEFAULT_QUIZ_QUESTIONS: Array<{
   { id: "q3", label_en: "Which piece are you dreaming of?", label_es: "¿Con qué pieza estás soñando?" },
   { id: "q4", label_en: "Style vibe", label_es: "Estilo" },
   { id: "q5", label_en: "Metal preference", label_es: "Preferencia de metal" },
-  { id: "q6", label_en: "Usage", label_es: "Uso" },
+  { id: "q6", label_en: "When will this piece be worn?", label_es: "¿Cuándo se usará esta joya?" },
   { id: "q7", label_en: "Do you wear a watch?", label_es: "¿Usas reloj?" },
   { id: "q8", label_en: "Sizing", label_es: "Tamaño o Talla", isConditional: true },
   { id: "q9", label_en: "Deadline", label_es: "Límite de tiempo" },

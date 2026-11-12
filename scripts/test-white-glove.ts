@@ -4,6 +4,7 @@ import nodemailer from "nodemailer"
 import {
   createWhiteGloveService,
   createMailSender,
+  DEFAULT_QUIZ_QUESTIONS,
   getBusinessNotificationEmail,
   getEmailDeliveryConfigStatus,
   OFFICIAL_ADMIN_NOTIFICATION_EMAIL,
@@ -81,7 +82,7 @@ const SAMPLE_ANSWERS: Record<string, string> = {
   q3: "Chain",
   q4: "Street-Lux",
   q5: "Yellow",
-  q6: "Daily",
+  q6: "Everyday",
   q7: "Yes",
   q8: '20"',
   q9: "2 weeks",
@@ -537,4 +538,146 @@ test("Test D — Official mngjewerly25k@gmail.com configuration & real Nodemaile
     if (prevSmtpPass === undefined) delete process.env.SMTP_PASS
     else process.env.SMTP_PASS = prevSmtpPass
   }
+})
+
+test("Test E — Question 6 (q6) in English & Spanish, personal & gift flows, and preservation of previous 'Gift' submissions", async () => {
+  resetSubmissionRateLimitForTests()
+  const db = createMockQuizDb()
+  const sentEmails: EmailMessagePayload[] = []
+  const service = createWhiteGloveService(db, async (msg) => {
+    sentEmails.push(msg)
+    return { sent: true, messageId: `msg_q6_${sentEmails.length}` }
+  })
+
+  // 1. Verify DEFAULT_QUIZ_QUESTIONS has 11 questions and updated q6 labels
+  assert.equal(DEFAULT_QUIZ_QUESTIONS.length, 11)
+  const q6Def = DEFAULT_QUIZ_QUESTIONS[5]
+  assert.equal(q6Def.id, "q6")
+  assert.equal(q6Def.label_en, "When will this piece be worn?")
+  assert.equal(q6Def.label_es, "¿Cuándo se usará esta joya?")
+
+  // 2. Seed previous submissions that answered "Gift" on q6 (both v2 structured and v1 legacy flat JSON)
+  await db.quizSubmission.create({
+    data: {
+      preferredContact: "Email: legacy-v2@example.com",
+      answers: JSON.stringify({
+        schemaVersion: 2,
+        submittedAt: "2026-10-01T12:00:00.000Z",
+        updatedAt: "2026-10-01T12:00:00.000Z",
+        status: "New",
+        locale: "en",
+        contact: {
+          method: "Email",
+          rawInput: "legacy-v2@example.com",
+          displayValue: "legacy-v2@example.com",
+          email: "legacy-v2@example.com",
+        },
+        questionsAndAnswers: [
+          { id: "q1", questionNumber: 1, questionEn: "Who is it for?", answer: "Gift" },
+          { id: "q6", questionNumber: 6, questionEn: "Usage", questionEs: "Uso", answer: "Gift" },
+        ],
+        rawAnswers: { q1: "Gift", q6: "Gift", q11: "Email" },
+        preferences: { recipient: "Gift", usage: "Gift" },
+        notifications: {
+          adminEmail: { status: "sent", attempts: 1 },
+          customerEmail: { status: "sent", attempts: 1 },
+        },
+        statusHistory: [{ status: "New", changedAt: "2026-10-01T12:00:00.000Z" }],
+      }),
+    },
+  })
+
+  await db.quizSubmission.create({
+    data: {
+      preferredContact: "Instagram: @legacy_v1_gift",
+      answers: JSON.stringify({
+        q1: "Gift",
+        q2: "$150 - $350",
+        q3: "Bracelet",
+        q4: "Classic",
+        q5: "White",
+        q6: "Gift",
+        q7: "No",
+        q8: '7" - 7.5"',
+        q9: "Flexible",
+        q10: "Lab-Grown Stones",
+        q11: "Instagram DM",
+      }),
+    },
+  })
+
+  // 3. Submit English flow (for Gift, q6 = "Special occasions") and Spanish flow (for Me, q6 = "A diario")
+  const enResult = await service.submitQuiz({
+    answers: {
+      ...SAMPLE_ANSWERS,
+      q1: "Gift",
+      q6: "Special occasions",
+      q11: "Email",
+    },
+    preferredContactMethod: "Email",
+    contactValue: "english.gift@example.com",
+    locale: "en",
+    idempotencyKey: "idem_q6_en_1",
+  })
+
+  const esResult = await service.submitQuiz({
+    answers: {
+      ...SAMPLE_ANSWERS,
+      q1: "Me",
+      q6: "A diario",
+      q11: "Email",
+    },
+    preferredContactMethod: "Email",
+    contactValue: "espanol.personal@example.com",
+    locale: "es",
+    idempotencyKey: "idem_q6_es_1",
+  })
+
+  assert.equal(enResult.success, true)
+  assert.equal(esResult.success, true)
+
+  // Verify English submission stored & emailed properly
+  const enQ6 = enResult.request.questionsAndAnswers.find((qa) => qa.id === "q6")
+  assert.ok(enQ6)
+  assert.equal(enQ6.questionNumber, 6)
+  assert.equal(enQ6.questionEn, "When will this piece be worn?")
+  assert.equal(enQ6.questionEs, "¿Cuándo se usará esta joya?")
+  assert.equal(enQ6.answer, "Special occasions")
+  assert.equal(enResult.request.preferences.usage, "Special occasions")
+  assert.ok(sentEmails[0].html.includes("When will this piece be worn?"))
+  assert.ok(sentEmails[0].html.includes("Special occasions"))
+  assert.ok(sentEmails[1].html.includes("When will this piece be worn?"))
+  assert.ok(sentEmails[1].html.includes("Special occasions"))
+
+  // Verify Spanish submission stored & emailed properly
+  const esQ6 = esResult.request.questionsAndAnswers.find((qa) => qa.id === "q6")
+  assert.ok(esQ6)
+  assert.equal(esQ6.questionNumber, 6)
+  assert.equal(esQ6.questionEn, "When will this piece be worn?")
+  assert.equal(esQ6.questionEs, "¿Cuándo se usará esta joya?")
+  assert.equal(esQ6.answer, "A diario")
+  assert.equal(esResult.request.preferences.usage, "A diario")
+  assert.ok(sentEmails[2].html.includes("When will this piece be worn?"))
+  assert.ok(sentEmails[2].html.includes("A diario"))
+  assert.ok(sentEmails[3].html.includes("When will this piece be worn?"))
+  assert.ok(sentEmails[3].html.includes("A diario"))
+
+  // 4. Verify historical "Gift" submissions remain completely intact in Admin list and after status updates
+  const { requests } = await service.listRequests()
+  const legacyV2 = requests.find((r) => r.email === "legacy-v2@example.com")
+  const legacyV1 = requests.find((r) => r.instagramHandle === "legacy_v1_gift")
+  assert.ok(legacyV2)
+  assert.equal(legacyV2.rawAnswers.q6, "Gift")
+  assert.equal(legacyV2.preferences.usage, "Gift")
+  assert.equal(legacyV2.questionsAndAnswers.find((qa) => qa.id === "q6")?.answer, "Gift")
+  assert.equal(legacyV2.questionsAndAnswers.find((qa) => qa.id === "q6")?.questionEn, "Usage")
+
+  assert.ok(legacyV1)
+  assert.equal(legacyV1.rawAnswers.q6, "Gift")
+  assert.equal(legacyV1.preferences.usage, "Gift")
+  assert.equal(legacyV1.questionsAndAnswers.find((qa) => qa.id === "q6")?.answer, "Gift")
+
+  const updatedLegacyV2 = await service.updateRequestStatus(legacyV2.id, "Contacted", "Reviewed legacy gift request")
+  assert.equal(updatedLegacyV2.preferences.usage, "Gift")
+  assert.equal(updatedLegacyV2.questionsAndAnswers.find((qa) => qa.id === "q6")?.answer, "Gift")
 })

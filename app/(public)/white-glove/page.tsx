@@ -119,9 +119,12 @@ export default function WhiteGlovePage() {
     {
       id: 'q6',
       type: 'radio',
-      options: ['Daily', 'Occasions', 'Gift'],
-      label_en: 'Usage',
-      label_es: 'Uso',
+      options:
+        locale === 'es'
+          ? ['A diario', 'En ocasiones especiales', 'Ambos', 'No estoy seguro/a']
+          : ['Everyday', 'Special occasions', 'Both', 'Not sure'],
+      label_en: 'When will this piece be worn?',
+      label_es: '¿Cuándo se usará esta joya?',
     },
     {
       id: 'q7',
