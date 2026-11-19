@@ -46,11 +46,16 @@ export default async function ProductPage({ params }: Props) {
   const productService = createAdminProductService(db)
   const metaStore = await productService.getCatalogMetadata()
 
-  // Fallback: if accessed by custom SKU, resolve matching active product
+  // Fallback: if accessed by custom SKU or variant SKU, resolve matching active product
   if (!product) {
-    const matchedProductId = Object.entries(metaStore.products).find(
-      ([, meta]) => meta?.sku && meta.sku.toLowerCase() === slug.toLowerCase()
-    )?.[0]
+    const lowerSlug = slug.toLowerCase()
+    const matchedProductId = Object.entries(metaStore.products).find(([, meta]) => {
+      if (meta?.sku && meta.sku.toLowerCase() === lowerSlug) return true
+      if (Array.isArray(meta?.variants)) {
+        return meta.variants.some((v) => v?.sku && v.sku.toLowerCase() === lowerSlug)
+      }
+      return false
+    })?.[0]
     if (matchedProductId) {
       product = await db.product.findUnique({ where: { id: matchedProductId } })
     }
@@ -62,6 +67,10 @@ export default async function ProductPage({ params }: Props) {
 
   const prodMeta = metaStore.products[product.id] || {}
   const lowStockThreshold = prodMeta.lowStockThreshold ?? metaStore.lowStockThreshold
+  const { hasVariants, variantType, variants } = await productService.getProductVariants(
+    product.id,
+    metaStore
+  )
 
   // Get related products (same category, excluding current)
   const relatedDbProducts = await db.product.findMany({
@@ -86,6 +95,9 @@ export default async function ProductPage({ params }: Props) {
     variations: prodMeta.variations || [],
     lowStockThreshold,
     sizes: product.sizes,
+    hasVariants,
+    variantType,
+    variants,
   }
 
   const formattedRelated = relatedDbProducts.map((p) => {

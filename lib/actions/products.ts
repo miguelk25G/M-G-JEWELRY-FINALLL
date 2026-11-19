@@ -182,10 +182,8 @@ export async function createProductAction(formData: FormData) {
   const nameEs = (formData.get("nameEs") as string || "").trim()
   const description = (formData.get("description") as string || "").trim()
   const descriptionEs = (formData.get("descriptionEs") as string || "").trim()
-  const price = parseFloat(formData.get("price") as string)
-  const comparePrice = formData.get("comparePrice")
-    ? parseFloat(formData.get("comparePrice") as string)
-    : null
+  const priceRaw = formData.get("price") as string
+  const comparePriceRaw = formData.get("comparePrice") as string
   const metalColor = (formData.get("metalColor") as string || formData.get("metalType") as string || "Yellow Gold").trim()
   const material = (formData.get("material") as string || formData.get("karat") as string || "").trim()
   const stoneType = (formData.get("stoneType") as string || "none").trim()
@@ -199,6 +197,11 @@ export async function createProductAction(formData: FormData) {
   const isActiveRaw = formData.get("isActive")
   const isActive = isActiveRaw === null ? true : isActiveRaw === "true" || isActiveRaw === "on"
 
+  const hasVariantsRaw = formData.get("hasVariants")
+  const hasVariants = hasVariantsRaw === "true" || hasVariantsRaw === "on"
+  const variantType = (formData.get("variantType") as string || "length").trim()
+  const variantsJson = formData.get("variantsJson") as string | null
+
   const imageFile = formData.get("image") as File | null
   const imageUrlsRaw = formData.get("imageUrls") as string | null
 
@@ -208,58 +211,38 @@ export async function createProductAction(formData: FormData) {
     uploadedUrls.unshift(fileUrl)
   }
 
-  if (!name || !Number.isFinite(price) || price <= 0 || !category || uploadedUrls.length === 0) {
-    throw new Error("Missing required fields")
+  if (!name || !category || uploadedUrls.length === 0) {
+    throw new Error("Missing required fields (Name, Category, and at least one Image are required).")
   }
 
-  const inventoryQty = normalizeInventoryInput(stockMode, inventoryQtyRaw as string)
-  const sizesList = parseStringList(sizesRaw)
-  const weight = weightRaw && !isNaN(parseFloat(weightRaw)) && parseFloat(weightRaw) > 0 ? parseFloat(weightRaw) : null
-  const length = lengthRaw && !isNaN(parseFloat(lengthRaw)) && parseFloat(lengthRaw) > 0 ? parseFloat(lengthRaw) : null
-
-  const baseSlug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || `product-${Date.now()}`
-
-  const existingSlug = await db.product.findUnique({ where: { slug: baseSlug } })
-  const finalSlug = existingSlug ? `${baseSlug}-${Date.now().toString().slice(-4)}` : baseSlug
-
-  const product = await db.product.create({
-    data: {
-      name,
-      nameEs: nameEs || null,
-      slug: finalSlug,
-      description,
-      descriptionEs: descriptionEs || null,
-      price,
-      comparePrice,
-      metalType: metalColor,
-      karat: material || null,
-      stoneType,
-      category,
-      images: JSON.stringify(uploadedUrls),
-      isActive,
-      inventoryQty,
-      weight,
-      length,
-      sizes: sizesList.length > 0 ? JSON.stringify(sizesList) : null,
-    },
+  const service = createAdminProductService(db)
+  const result = await service.createProduct({
+    name,
+    nameEs: nameEs || null,
+    description,
+    descriptionEs: descriptionEs || null,
+    sku: skuInput || null,
+    category,
+    price: priceRaw,
+    comparePrice: comparePriceRaw || null,
+    images: uploadedUrls,
+    material: material || null,
+    karat: material || null,
+    metalColor,
+    metalType: metalColor,
+    stoneType,
+    weight: weightRaw || null,
+    length: lengthRaw || null,
+    sizes: sizesRaw || null,
+    isActive,
+    stockMode,
+    inventoryQty: inventoryQtyRaw as string,
+    hasVariants,
+    variantType,
+    variants: variantsJson,
   })
 
-  const realSku = resolveRealProductSku(skuInput, finalSlug)
-  if (realSku || material || metalColor) {
-    const service = createAdminProductService(db)
-    const metaStore = await service.getCatalogMetadata()
-    metaStore.products[product.id] = {
-      sku: realSku || undefined,
-      material: material || undefined,
-      metalColor: metalColor || undefined,
-    }
-    await service.saveCatalogMetadata(metaStore)
-  }
-
-  revalidateStorefrontAndAdmin(product.slug, [product.category])
+  revalidateStorefrontAndAdmin(result.product.slug, [result.product.category])
   redirect("/admin/products")
 }
 

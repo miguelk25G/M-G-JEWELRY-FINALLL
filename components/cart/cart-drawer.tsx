@@ -63,7 +63,20 @@ export function CartDrawer() {
                           </h4>
                           {item.size && (
                             <p className="mt-0.5 text-xs text-muted-foreground">
-                              {t('product.size')}: {item.size}
+                              {item.variantType === 'length'
+                                ? t('product.length')
+                                : t('product.size')}
+                              : {item.size}
+                            </p>
+                          )}
+                          {item.weight !== undefined && item.weight !== null && item.weight > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {t('product.weight')}: {item.weight} g
+                            </p>
+                          )}
+                          {item.sku && (
+                            <p className="text-[11px] font-mono text-muted-foreground">
+                              SKU: {item.sku}
                             </p>
                           )}
                           {item.karat && (

@@ -409,11 +409,19 @@ export function OrdersClient({ orders }: { orders: any[] }) {
                 </h4>
                 <div className="space-y-2 border border-border rounded-lg p-3">
                   {selectedOrder.itemsList?.map((it: any) => (
-                    <div key={it.id} className="flex justify-between items-center text-xs">
+                    <div key={it.id} className="flex justify-between items-start text-xs gap-2">
                       <div>
                         <span className="font-medium">{it.name}</span>
-                        {it.size && <span className="text-muted-foreground ml-2">(Size: {it.size})</span>}
+                        {it.size && <span className="text-muted-foreground ml-2">({it.variantType === "length" ? "Length" : "Size"}: {it.size})</span>}
+                        {it.weight !== undefined && it.weight !== null && it.weight > 0 && (
+                          <span className="text-muted-foreground ml-2">• {it.weight}g</span>
+                        )}
                         <span className="text-muted-foreground ml-2">x{it.quantity}</span>
+                        {it.sku && (
+                          <div className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                            SKU: {it.sku} • Unit: {formatPrice(it.price)}
+                          </div>
+                        )}
                       </div>
                       <span className="font-mono">{formatPrice(it.price * it.quantity)}</span>
                     </div>

@@ -14,9 +14,13 @@ import { useFavoritesStore } from '@/lib/store/favorites-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
 import {
+  type ProductVariantRecord,
+  type VariantType,
   getStorefrontStockState,
+  getVariantTypeOption,
   parseVariantOptionAndSku,
   resolveActiveProductSku,
+  resolveRealProductSku,
 } from '@/lib/inventory'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -47,6 +51,9 @@ interface Product {
   lengths?: string[]
   variations?: string[]
   sizes: string | null
+  hasVariants?: boolean
+  variantType?: VariantType
+  variants?: ProductVariantRecord[]
 }
 
 interface RelatedProduct {
@@ -85,8 +92,17 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
     }
   })()
 
-  // Safely parse available sizes: handles null, undefined, empty array or invalid JSON
+  // Active structured variants (when product has multiple sizes/lengths with individual pricing)
+  const activeVariants: ProductVariantRecord[] =
+    product.hasVariants && Array.isArray(product.variants)
+      ? product.variants.filter((v) => v && v.isActive !== false)
+      : []
+  const hasStructuredVariants = Boolean(product.hasVariants && activeVariants.length > 0)
+  const variantTypeMeta = getVariantTypeOption(product.variantType)
+
+  // Safely parse legacy available sizes (for products without structured variants)
   const availableSizes: string[] = (() => {
+    if (hasStructuredVariants) return []
     if (!product.sizes) return []
     try {
       const parsed = JSON.parse(product.sizes)
@@ -96,56 +112,140 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
     }
   })()
 
-  const hasSizes = availableSizes.length > 0
-  const availableLengths: string[] = Array.isArray(product.lengths)
-    ? product.lengths.map((l) => String(l).trim()).filter(Boolean)
-    : []
+  const hasSizes = !hasStructuredVariants && availableSizes.length > 0
+  const availableLengths: string[] =
+    !hasStructuredVariants && Array.isArray(product.lengths)
+      ? product.lengths.map((l) => String(l).trim()).filter(Boolean)
+      : []
   const availableVariations: string[] = Array.isArray(product.variations)
     ? product.variations.map((v) => String(v).trim()).filter(Boolean)
     : []
 
   const [selectedImage, setSelectedImage] = useState(0)
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
   const [selectedLength, setSelectedLength] = useState<string | null>(null)
   const [selectedVariation, setSelectedVariation] = useState<string | null>(null)
   const [quantity, setQuantity] = useState(1)
 
-  const activeSku = resolveActiveProductSku({
-    baseSku: product.sku,
-    slug: product.slug,
-    variantSkus: product.variantSkus,
-    selection: {
-      size: selectedSize,
-      length: selectedLength,
-      variation: selectedVariation,
-    },
-  })
+  const selectedVariant: ProductVariantRecord | null = hasStructuredVariants
+    ? activeVariants.find((v) => v.id === selectedVariantId) || null
+    : null
+
+  // Lead variant (lowest priced active variant) for initial display before customer selects one
+  const leadVariant: ProductVariantRecord | null = hasStructuredVariants
+    ? [...activeVariants].sort((a, b) => a.price - b.price)[0] || null
+    : null
+
+  // Dynamic Price & Compare-at Price
+  const activePrice = hasStructuredVariants
+    ? selectedVariant
+      ? selectedVariant.price
+      : leadVariant?.price ?? product.price
+    : product.price
+
+  const activeComparePrice = hasStructuredVariants
+    ? selectedVariant
+      ? selectedVariant.comparePrice
+      : leadVariant?.comparePrice ?? null
+    : product.comparePrice
+
+  const isOnSale = Boolean(activeComparePrice && activeComparePrice > activePrice)
+
+  // Dynamic Weight (never falls back to inaccurate parent weight when variants are enabled)
+  const activeWeight: number | null = hasStructuredVariants
+    ? selectedVariant
+      ? selectedVariant.weight
+      : null
+    : product.weight ?? null
+
+  // Dynamic SKU
+  const activeSku = (() => {
+    if (hasStructuredVariants && selectedVariant) {
+      const varSku = resolveRealProductSku(selectedVariant.sku, product.slug)
+      if (varSku) return varSku
+    }
+    return resolveActiveProductSku({
+      baseSku: product.sku,
+      slug: product.slug,
+      variantSkus: product.variantSkus,
+      selection: {
+        variantId: selectedVariant?.id,
+        size: selectedVariant?.size || selectedSize,
+        length: selectedLength,
+        variation: selectedVariation,
+      },
+    })
+  })()
 
   const displayName = locale === 'es' && product.nameEs ? product.nameEs : product.name
   const displayDescription = locale === 'es' && product.descriptionEs ? product.descriptionEs : product.description
-  const isOnSale = product.comparePrice && product.comparePrice > product.price
 
-  const stockState = getStorefrontStockState(product.inventoryQty, product.lowStockThreshold)
+  // Dynamic Stock State per selected variant (or overall product if no variant selected yet)
+  const stockState = hasStructuredVariants
+    ? selectedVariant
+      ? getStorefrontStockState(selectedVariant.inventoryQty, product.lowStockThreshold)
+      : getStorefrontStockState(product.inventoryQty, product.lowStockThreshold)
+    : getStorefrontStockState(product.inventoryQty, product.lowStockThreshold)
+
   const { isUnlimited, isLowStock, isOutOfStock, maxPurchasableQty } = stockState
   const favorite = isFavorite(product.id)
 
+  // Track existing cart quantity independently per variant when variants are enabled
   const existingInCart = cartItems
-    .filter((i) => i.productId === product.id)
+    .filter((i) => {
+      if (i.productId !== product.id) return false
+      if (hasStructuredVariants) {
+        return selectedVariant ? i.variantId === selectedVariant.id : false
+      }
+      return true
+    })
     .reduce((sum, i) => sum + i.quantity, 0)
 
+  const handleSelectVariant = (variant: ProductVariantRecord) => {
+    setSelectedVariantId(variant.id)
+    setSelectedSize(variant.size)
+    const vStock = getStorefrontStockState(variant.inventoryQty, product.lowStockThreshold)
+    if (!vStock.isUnlimited && vStock.maxPurchasableQty !== null && vStock.maxPurchasableQty > 0) {
+      setQuantity((q) => Math.min(q, vStock.maxPurchasableQty!))
+    } else {
+      setQuantity(1)
+    }
+  }
+
   const handleAddToCart = () => {
-    if (isOutOfStock) {
-      toast.error(locale === 'es' ? 'Este producto está agotado' : 'This product is out of stock')
-      return
+    if (hasStructuredVariants) {
+      if (!selectedVariant) {
+        const promptMsg =
+          locale === 'es'
+            ? variantTypeMeta.selectorLabelEs
+            : variantTypeMeta.selectorLabelEn
+        toast.error(
+          locale === 'es'
+            ? `Por favor selecciona una opción (${promptMsg.toLowerCase()}) antes de agregar al carrito.`
+            : `Please select an available option (${promptMsg.toLowerCase()}) before adding to cart.`
+        )
+        return
+      }
+      if (isOutOfStock) {
+        toast.error(locale === 'es' ? 'Esta variante está agotada' : 'This variant is out of stock')
+        return
+      }
+    } else {
+      if (isOutOfStock) {
+        toast.error(locale === 'es' ? 'Este producto está agotado' : 'This product is out of stock')
+        return
+      }
+      if (hasSizes && !selectedSize) {
+        toast.error(locale === 'es' ? 'Por favor selecciona una talla' : 'Please select a size')
+        return
+      }
+      if (hasSizes && selectedSize && !availableSizes.includes(selectedSize)) {
+        toast.error(locale === 'es' ? 'Por favor selecciona una talla disponible' : 'Please select an available size')
+        return
+      }
     }
-    if (hasSizes && !selectedSize) {
-      toast.error(locale === 'es' ? 'Por favor selecciona una talla' : 'Please select a size')
-      return
-    }
-    if (hasSizes && selectedSize && !availableSizes.includes(selectedSize)) {
-      toast.error(locale === 'es' ? 'Por favor selecciona una talla disponible' : 'Please select an available size')
-      return
-    }
+
     if (!isUnlimited && maxPurchasableQty !== null && existingInCart + quantity > maxPurchasableQty) {
       const remaining = Math.max(0, maxPurchasableQty - existingInCart)
       toast.error(
@@ -160,17 +260,40 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
       return
     }
 
-    addToCart({
-      productId: product.id,
-      name: displayName,
-      price: product.price,
-      image: images[0],
-      quantity,
-      size: hasSizes ? (selectedSize || undefined) : undefined,
-      metalType: product.metalType,
-      karat: product.karat || undefined,
-      maxStock: isUnlimited ? undefined : (maxPurchasableQty ?? undefined),
-    })
+    if (hasStructuredVariants && selectedVariant) {
+      addToCart({
+        productId: product.id,
+        variantId: selectedVariant.id,
+        name: displayName,
+        price: selectedVariant.price,
+        comparePrice: selectedVariant.comparePrice ?? undefined,
+        image: images[0],
+        quantity,
+        size: selectedVariant.size,
+        variantType: product.variantType || selectedVariant.variantType,
+        sku: activeSku || selectedVariant.sku || undefined,
+        weight: selectedVariant.weight ?? undefined,
+        metalType: product.metalType,
+        karat: product.karat || undefined,
+        maxStock: isUnlimited ? undefined : (maxPurchasableQty ?? undefined),
+      })
+    } else {
+      addToCart({
+        productId: product.id,
+        name: displayName,
+        price: product.price,
+        comparePrice: product.comparePrice ?? undefined,
+        image: images[0],
+        quantity,
+        size: hasSizes ? (selectedSize || undefined) : undefined,
+        sku: activeSku || undefined,
+        weight: product.weight ?? undefined,
+        metalType: product.metalType,
+        karat: product.karat || undefined,
+        maxStock: isUnlimited ? undefined : (maxPurchasableQty ?? undefined),
+      })
+    }
+
     toast.success(t('product.addedToCart'))
   }
 
@@ -178,11 +301,16 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
     toggleItem({
       id: product.id,
       name: displayName,
-      price: product.price,
+      price: activePrice,
       image: images[0],
       slug: product.slug,
     })
   }
+
+  const selectorHeading =
+    locale === 'es' ? variantTypeMeta.selectorLabelEs : variantTypeMeta.selectorLabelEn
+  const selectedPrefixLabel =
+    locale === 'es' ? variantTypeMeta.selectedPrefixEs : variantTypeMeta.selectedPrefixEn
 
   return (
     <div className="py-8 lg:py-12">
@@ -201,12 +329,12 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
               />
               {isOnSale && (
                 <Badge variant="destructive" className="absolute left-4 top-4">
-                  Sale
+                  {locale === 'es' ? 'Oferta' : 'Sale'}
                 </Badge>
               )}
               {product.isBestSeller && (
                 <Badge variant="secondary" className="absolute left-4 top-12">
-                  Best Seller
+                  {locale === 'es' ? 'Más Vendido' : 'Best Seller'}
                 </Badge>
               )}
             </div>
@@ -226,7 +354,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                     )}
                   >
                     <Image
-                      src={image || "/placeholder.svg"}
+                      src={image || '/placeholder.svg'}
                       alt={`${displayName} view ${index + 1}`}
                       fill
                       className="object-cover"
@@ -260,38 +388,140 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
               </div>
             </div>
 
-            {/* Price */}
+            {/* Price & Compare-at Price */}
             <div className="flex items-baseline gap-3">
-              <span className="text-3xl font-bold text-foreground">
-                {formatPrice(product.price, product.currency)}
+              <span
+                data-testid="product-detail-price"
+                className="text-3xl font-bold text-foreground"
+              >
+                {formatPrice(activePrice, product.currency)}
               </span>
-              {isOnSale && product.comparePrice && (
-                <span className="text-xl text-muted-foreground line-through">
-                  {formatPrice(product.comparePrice, product.currency)}
+              {isOnSale && activeComparePrice && (
+                <span
+                  data-testid="product-detail-compare-price"
+                  className="text-xl text-muted-foreground line-through"
+                >
+                  {formatPrice(activeComparePrice, product.currency)}
                 </span>
               )}
             </div>
 
-            {/* Stock Status */}
-            <div>
-              {isOutOfStock ? (
-                <Badge variant="outline" className="text-destructive border-destructive/40">
-                  {t('product.outOfStock')}
-                </Badge>
-              ) : isLowStock ? (
-                <Badge variant="outline" className="border-amber-500 text-amber-500">
-                  {t('product.lowStock', { count: product.inventoryQty })}
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="border-green-500 text-green-500">
-                  {t('product.inStock')}
-                </Badge>
+            {/* Dynamic Summary: Availability & Weight */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div data-testid="product-detail-availability">
+                {isOutOfStock ? (
+                  <Badge variant="outline" className="text-destructive border-destructive/40">
+                    {t('product.outOfStock')}
+                  </Badge>
+                ) : isLowStock ? (
+                  <Badge variant="outline" className="border-amber-500 text-amber-500">
+                    {t('product.lowStock', {
+                      count:
+                        hasStructuredVariants && selectedVariant
+                          ? selectedVariant.inventoryQty
+                          : product.inventoryQty,
+                    })}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="border-green-500 text-green-500">
+                    {t('product.inStock')}
+                  </Badge>
+                )}
+              </div>
+
+              {activeWeight !== null && activeWeight > 0 && (
+                <div
+                  data-testid="product-detail-weight-badge"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2.5 py-0.5 text-xs text-foreground"
+                >
+                  <span className="text-muted-foreground">{t('product.weight')}:</span>
+                  <span className="font-semibold">{activeWeight} g</span>
+                </div>
+              )}
+
+              {hasStructuredVariants && selectedVariant && activeWeight === null && (
+                <span
+                  data-testid="product-detail-weight-unavailable"
+                  className="text-xs text-muted-foreground"
+                >
+                  {t('product.weightUnavailable')}
+                </span>
               )}
             </div>
 
             <Separator />
 
-            {/* Size Selection */}
+            {/* Structured Product Variants Selector (Individual Price, Weight & Stock per Variant) */}
+            {hasStructuredVariants && (
+              <div className="space-y-3" data-testid="product-variant-selector">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground">
+                    {selectedVariant ? (
+                      <>
+                        <span className="text-muted-foreground">{selectedPrefixLabel}: </span>
+                        <span className="font-semibold text-foreground">{selectedVariant.size}</span>
+                      </>
+                    ) : (
+                      <span>{selectorHeading}</span>
+                    )}
+                  </label>
+                  {!selectedVariant && (
+                    <span className="text-xs text-amber-500 font-medium">
+                      {locale === 'es' ? 'Requerido' : 'Required'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {activeVariants.map((variant) => {
+                    const vStock = getStorefrontStockState(
+                      variant.inventoryQty,
+                      product.lowStockThreshold
+                    )
+                    const vOut = vStock.isOutOfStock
+                    const isSelected = selectedVariantId === variant.id
+
+                    return (
+                      <button
+                        key={variant.id}
+                        type="button"
+                        data-testid={`variant-option-${variant.size}`}
+                        data-variant-id={variant.id}
+                        data-out-of-stock={vOut ? 'true' : 'false'}
+                        onClick={() => handleSelectVariant(variant)}
+                        className={cn(
+                          'group relative flex flex-col items-center justify-center rounded-lg border px-3 py-2.5 text-center transition-all',
+                          isSelected
+                            ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary shadow-xs'
+                            : vOut
+                            ? 'border-border/60 bg-secondary/20 text-muted-foreground opacity-65 hover:border-border'
+                            : 'border-border bg-card/60 text-foreground hover:border-primary/60 hover:bg-secondary/40'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'text-sm font-semibold tracking-tight',
+                            vOut && 'line-through decoration-muted-foreground/70'
+                          )}
+                        >
+                          {variant.size}
+                        </span>
+                        <span className="mt-0.5 text-xs font-medium text-muted-foreground group-hover:text-foreground">
+                          {formatPrice(variant.price, product.currency)}
+                        </span>
+                        {vOut && (
+                          <span className="mt-0.5 text-[10px] font-medium text-destructive">
+                            {t('product.outOfStock')}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Legacy Size Selection (Single-Price Products) */}
             {hasSizes && (
               <div>
                 <label className="mb-3 block text-sm font-medium text-foreground">
@@ -320,7 +550,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
               </div>
             )}
 
-            {/* Length Variant Selection */}
+            {/* Legacy Length Variant Selection */}
             {availableLengths.length > 0 && (
               <div>
                 <label className="mb-3 block text-sm font-medium text-foreground">
@@ -415,6 +645,7 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
             <div className="flex gap-3">
               <Button
                 size="lg"
+                data-testid="add-to-cart-button"
                 className="flex-1 gap-2"
                 onClick={handleAddToCart}
                 disabled={isOutOfStock}
@@ -485,26 +716,58 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                     <dd className="min-w-0 text-foreground capitalize break-words">{product.stoneType} Diamond</dd>
                   </>
                 )}
-                {product.weight && (
+                {hasStructuredVariants ? (
                   <>
-                    <dt className="text-muted-foreground">{t('product.weight')}</dt>
-                    <dd className="min-w-0 text-foreground break-words">{product.weight}g</dd>
-                  </>
-                )}
-                {product.length && (
-                  <>
-                    <dt className="text-muted-foreground">{t('product.length')}</dt>
-                    <dd className="min-w-0 text-foreground break-words">{product.length}&quot;</dd>
-                  </>
-                )}
-                {availableLengths.length > 0 && (
-                  <>
-                    <dt className="text-muted-foreground">
-                      {locale === 'es' ? 'Largos disponibles' : 'Available Lengths'}
-                    </dt>
-                    <dd className="min-w-0 text-foreground break-words">
-                      {availableLengths.map((l) => parseVariantOptionAndSku(l).label).join(', ')}
+                    <dt className="text-muted-foreground">{selectedPrefixLabel}</dt>
+                    <dd
+                      data-testid="product-detail-selected-size"
+                      className="min-w-0 text-foreground break-words"
+                    >
+                      {selectedVariant
+                        ? selectedVariant.size
+                        : activeVariants.map((v) => v.size).join(', ')}
                     </dd>
+                    {activeWeight !== null && activeWeight > 0 && (
+                      <>
+                        <dt className="text-muted-foreground">{t('product.weight')}</dt>
+                        <dd
+                          data-testid="product-detail-weight"
+                          className="min-w-0 text-foreground break-words"
+                        >
+                          {activeWeight} g
+                        </dd>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {product.weight && (
+                      <>
+                        <dt className="text-muted-foreground">{t('product.weight')}</dt>
+                        <dd
+                          data-testid="product-detail-weight"
+                          className="min-w-0 text-foreground break-words"
+                        >
+                          {product.weight}g
+                        </dd>
+                      </>
+                    )}
+                    {product.length && (
+                      <>
+                        <dt className="text-muted-foreground">{t('product.length')}</dt>
+                        <dd className="min-w-0 text-foreground break-words">{product.length}&quot;</dd>
+                      </>
+                    )}
+                    {availableLengths.length > 0 && (
+                      <>
+                        <dt className="text-muted-foreground">
+                          {locale === 'es' ? 'Largos disponibles' : 'Available Lengths'}
+                        </dt>
+                        <dd className="min-w-0 text-foreground break-words">
+                          {availableLengths.map((l) => parseVariantOptionAndSku(l).label).join(', ')}
+                        </dd>
+                      </>
+                    )}
                   </>
                 )}
                 {availableVariations.length > 0 && (

@@ -48,13 +48,25 @@ export default async function OrdersPage() {
       shippingAddress: order.shippingAddress,
       notes: order.notes || "",
       items: order.items.reduce((sum: number, item: any) => sum + item.quantity, 0),
-      itemsList: order.items.map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        size: item.size,
-      })),
+      itemsList: order.items.map((item: any) => {
+        let parsedOpts: any = {}
+        try {
+          if (item.options) parsedOpts = JSON.parse(item.options)
+        } catch {
+          parsedOpts = {}
+        }
+        return {
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          size: item.size || parsedOpts.size || null,
+          variantId: parsedOpts.variantId || null,
+          variantType: parsedOpts.variantType || null,
+          sku: parsedOpts.sku || null,
+          weight: parsedOpts.weight ?? null,
+        }
+      }),
       status: displayStatus,
       payment: paymentStatus,
       paymentStatusRaw: order.paymentStatus,

@@ -1,6 +1,23 @@
 // Shared by webhook, cancellation and authenticated admin reconciliation.
 // Database + Stripe are injected so tests execute this exact production logic.
-export function validateSize(product: any, size?: string) {
+import {
+  CATALOG_METADATA_SETTINGS_ID,
+  computeAggregateProductStateFromVariants,
+  parseCatalogMetadata,
+  serializeCatalogMetadata,
+} from './inventory'
+
+export function validateSize(product: any, size?: string, variantId?: string) {
+  if (Array.isArray(product?.variants) && product.variants.length > 0) {
+    const activeVars = product.variants.filter((v: any) => v && v.isActive !== false)
+    const matched = activeVars.find((v: any) => {
+      if (variantId && v.id === variantId) return true
+      if (size && String(v.size).trim().toLowerCase() === String(size).trim().toLowerCase()) return true
+      return false
+    })
+    if (!matched) throw new Error('Select an available size.')
+    return
+  }
   let sizes: unknown = []
   try { sizes = product.sizes ? JSON.parse(product.sizes) : [] }
   catch { throw new Error('Product size configuration is invalid.') }
@@ -73,20 +90,37 @@ export function createPaymentService(db: any, stripe: any) {
       }
     }
   }
+  function parseItemOptions(item: any): Record<string, any> {
+    if (!item?.options) return {}
+    try {
+      const parsed = typeof item.options === 'string' ? JSON.parse(item.options) : item.options
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
   async function shouldRestockItem(tx: any, item: any): Promise<boolean> {
     if (!item || !item.productId) return false
-    if (item.options) {
+    const opts = parseItemOptions(item)
+    if (opts.stockMode === 'unlimited') return false
+
+    if (opts.variantId && tx.productVariant && typeof tx.productVariant.findUnique === 'function') {
       try {
-        const parsed = typeof item.options === 'string' ? JSON.parse(item.options) : item.options
-        if (parsed && parsed.stockMode === 'unlimited') return false
+        const currentVariant = await tx.productVariant.findUnique({ where: { id: opts.variantId } })
+        if (currentVariant && typeof currentVariant.inventoryQty === 'number' && currentVariant.inventoryQty < 0) {
+          return false
+        }
+        if (currentVariant) return true
       } catch {
-        // Ignore invalid options JSON
+        // Fallback if table not migrated
       }
     }
+
     if (tx.product && typeof tx.product.findUnique === 'function') {
       try {
         const currentProduct = await tx.product.findUnique({ where: { id: item.productId } })
-        if (currentProduct && typeof currentProduct.inventoryQty === 'number' && currentProduct.inventoryQty < 0) {
+        if (!opts.variantId && currentProduct && typeof currentProduct.inventoryQty === 'number' && currentProduct.inventoryQty < 0) {
           return false
         }
       } catch {
@@ -95,6 +129,85 @@ export function createPaymentService(db: any, stripe: any) {
     }
     return true
   }
+
+  async function restockOrderItem(tx: any, item: any) {
+    if (!(await shouldRestockItem(tx, item))) return
+    const opts = parseItemOptions(item)
+
+    if (opts.variantId) {
+      let updatedVariantInTable = false
+      if (tx.productVariant && typeof tx.productVariant.updateMany === 'function') {
+        try {
+          const res = await tx.productVariant.updateMany({
+            where: { id: opts.variantId, inventoryQty: { gte: 0 } },
+            data: { inventoryQty: { increment: item.quantity } },
+          })
+          updatedVariantInTable = res.count > 0
+        } catch {
+          // Ignore if table not migrated
+        }
+      }
+
+      // Sync CatalogMetadataStore in SiteSettings if present
+      if (tx.siteSettings && typeof tx.siteSettings.findUnique === 'function' && typeof tx.siteSettings.upsert === 'function') {
+        try {
+          const row = await tx.siteSettings.findUnique({ where: { id: CATALOG_METADATA_SETTINGS_ID } })
+          const metaStore = parseCatalogMetadata(row?.shippingInfo)
+          const prodMeta = metaStore.products[item.productId]
+          if (prodMeta && Array.isArray(prodMeta.variants)) {
+            prodMeta.variants = prodMeta.variants.map((v: any) => {
+              if (v.id === opts.variantId && typeof v.inventoryQty === 'number' && v.inventoryQty >= 0) {
+                return { ...v, inventoryQty: v.inventoryQty + item.quantity }
+              }
+              return v
+            })
+            const serialized = serializeCatalogMetadata(metaStore)
+            await tx.siteSettings.upsert({
+              where: { id: CATALOG_METADATA_SETTINGS_ID },
+              update: { shippingInfo: serialized },
+              create: {
+                id: CATALOG_METADATA_SETTINGS_ID,
+                siteName: 'M&G Jewelry Catalog Metadata',
+                shippingInfo: serialized,
+              },
+            })
+            if (tx.product && typeof tx.product.update === 'function') {
+              const agg = computeAggregateProductStateFromVariants(prodMeta.variants)
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { inventoryQty: agg.inventoryQty },
+              })
+              return
+            }
+          }
+        } catch {
+          // Ignore metadata sync error
+        }
+      }
+
+      if (updatedVariantInTable && tx.productVariant && typeof tx.productVariant.findMany === 'function' && tx.product && typeof tx.product.update === 'function') {
+        try {
+          const allVars = await tx.productVariant.findMany({ where: { productId: item.productId } })
+          if (Array.isArray(allVars) && allVars.length > 0) {
+            const agg = computeAggregateProductStateFromVariants(allVars as any)
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { inventoryQty: agg.inventoryQty },
+            })
+            return
+          }
+        } catch {
+          // Fallback
+        }
+      }
+    }
+
+    await tx.product.update({
+      where: { id: item.productId },
+      data: { inventoryQty: { increment: item.quantity } },
+    })
+  }
+
   async function release(tx: any, order: any, reason?: string) {
     const data: any = { reservationStatus: 'released', paymentStatus: 'failed', status: 'cancelled' }
     if (reason) data.notes = reason
@@ -104,9 +217,7 @@ export function createPaymentService(db: any, stripe: any) {
     })
     if (!changed.count) return { released: false, count: 0 }
     for (const item of order.items) {
-      if (await shouldRestockItem(tx, item)) {
-        await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
-      }
+      await restockOrderItem(tx, item)
     }
     await tx.transaction.updateMany({ where: { orderId: order.id, provider: 'stripe', status: 'pending' }, data: { status: 'failed' } })
     return { released: true, count: changed.count }
@@ -578,9 +689,7 @@ export function createPaymentService(db: any, stripe: any) {
       })
       if (!changed.count) return { restocked: false, count: 0 }
       for (const item of order.items) {
-        if (await shouldRestockItem(tx, item)) {
-          await tx.product.update({ where: { id: item.productId }, data: { inventoryQty: { increment: item.quantity } } })
-        }
+        await restockOrderItem(tx, item)
       }
       return { restocked: true, count: changed.count }
     })

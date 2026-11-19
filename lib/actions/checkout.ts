@@ -5,12 +5,27 @@ import { getStripe } from "@/lib/stripe"
 import { calculateOrderTotals, isTexasAddress, isUsAddress } from "@/lib/config/pricing"
 import Stripe from "stripe"
 import { createPaymentService, assertSession, validateSize } from "@/lib/payments"
-import { isUnlimitedStock } from "@/lib/inventory"
+import { createAdminProductService } from "@/lib/admin-products"
+import {
+  CATALOG_METADATA_SETTINGS_ID,
+  type ProductVariantRecord,
+  type VariantType,
+  coerceVariantRecord,
+  computeAggregateProductStateFromVariants,
+  isUnlimitedStock,
+  normalizeVariantType,
+  parseCatalogMetadata,
+  resolveProductVariant,
+  serializeCatalogMetadata,
+} from "@/lib/inventory"
 
 export interface CartItemInput {
   productId: string
+  variantId?: string
   quantity: number
   size?: string
+  sku?: string
+  weight?: number | null
   id?: string
 }
 
@@ -23,11 +38,15 @@ export interface CatalogItemDetails {
   inventoryQty?: number
   isUnlimited?: boolean
   price?: number
+  hasVariants?: boolean
+  variantType?: VariantType
+  variants?: ProductVariantRecord[]
 }
 
 export interface CartItemCompatibilityIssue {
   cartItemId?: string
   productId: string
+  variantId?: string
   name: string
   slug?: string
   type: 'has_no_sizes' | 'invalid_size' | 'missing_size' | 'unavailable' | 'insufficient_stock'
@@ -44,45 +63,83 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
   try {
     if (!items || items.length === 0) return { compatible: true, issues: [], catalogMap: {} }
 
-    const productIds = items.map((i) => i.productId).filter(Boolean)
+    const productIds = Array.from(new Set(items.map((i) => i.productId).filter(Boolean)))
     const products = await db.product.findMany({
       where: { id: { in: productIds } },
       select: { id: true, name: true, nameEs: true, slug: true, sizes: true, isActive: true, inventoryQty: true, price: true },
     })
+
+    const productService = createAdminProductService(db)
+    const metaStore = await productService.getCatalogMetadata()
 
     const pMap = new Map(products.map((p) => [p.id, p]))
     const issues: CartItemCompatibilityIssue[] = []
     const catalogMap: Record<string, CatalogItemDetails> = {}
 
     for (const p of products) {
-      let sizes: string[] = []
-      try {
-        if (p.sizes) {
-          const raw = JSON.parse(p.sizes)
-          if (Array.isArray(raw)) sizes = raw.map(String).map((s) => s.trim()).filter(Boolean)
+      const { hasVariants, variantType, variants } = await productService.getProductVariants(p.id, metaStore)
+      const activeVariants = variants.filter((v) => v.isActive)
+
+      if (hasVariants && variants.length > 0) {
+        catalogMap[p.id] = {
+          productId: p.id,
+          name: p.name,
+          slug: p.slug,
+          admitsSizes: true,
+          availableSizes: activeVariants.map((v) => v.size),
+          inventoryQty: p.inventoryQty,
+          isUnlimited: isUnlimitedStock(p.inventoryQty),
+          price: p.price,
+          hasVariants: true,
+          variantType,
+          variants: activeVariants,
         }
-      } catch {
-        sizes = []
-      }
-      catalogMap[p.id] = {
-        productId: p.id,
-        name: p.name,
-        slug: p.slug,
-        admitsSizes: sizes.length > 0,
-        availableSizes: sizes,
-        inventoryQty: p.inventoryQty,
-        isUnlimited: isUnlimitedStock(p.inventoryQty),
-        price: p.price,
+      } else {
+        let sizes: string[] = []
+        try {
+          if (p.sizes) {
+            const raw = JSON.parse(p.sizes)
+            if (Array.isArray(raw)) sizes = raw.map(String).map((s) => s.trim()).filter(Boolean)
+          }
+        } catch {
+          sizes = []
+        }
+        catalogMap[p.id] = {
+          productId: p.id,
+          name: p.name,
+          slug: p.slug,
+          admitsSizes: sizes.length > 0,
+          availableSizes: sizes,
+          inventoryQty: p.inventoryQty,
+          isUnlimited: isUnlimitedStock(p.inventoryQty),
+          price: p.price,
+          hasVariants: false,
+        }
       }
     }
 
     // Track total requested quantity per product across cart lines
     const requestedTotalsByProduct = new Map<string, number>()
+    const requestedTotalsByVariant = new Map<string, number>()
     for (const item of items) {
-      requestedTotalsByProduct.set(
-        item.productId,
-        (requestedTotalsByProduct.get(item.productId) || 0) + (item.quantity || 0)
-      )
+      const cat = catalogMap[item.productId]
+      if (cat?.hasVariants && cat.variants) {
+        const matchedVar = resolveProductVariant(cat.variants, {
+          variantId: item.variantId,
+          size: item.size,
+        })
+        if (matchedVar) {
+          requestedTotalsByVariant.set(
+            matchedVar.id,
+            (requestedTotalsByVariant.get(matchedVar.id) || 0) + (item.quantity || 0)
+          )
+        }
+      } else {
+        requestedTotalsByProduct.set(
+          item.productId,
+          (requestedTotalsByProduct.get(item.productId) || 0) + (item.quantity || 0)
+        )
+      }
     }
 
     for (const item of items) {
@@ -91,11 +148,74 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
         issues.push({
           cartItemId: item.id,
           productId: item.productId,
+          variantId: item.variantId,
           name: p?.name || item.productId,
           slug: p?.slug,
           type: 'unavailable',
           message: 'Product is unavailable',
         })
+        continue
+      }
+
+      const catDetails = catalogMap[item.productId]
+      if (catDetails?.hasVariants) {
+        const activeVars = catDetails.variants || []
+        const availSizes = activeVars.map((v) => v.size)
+        if (!item.variantId && !item.size) {
+          issues.push({
+            cartItemId: item.id,
+            productId: item.productId,
+            name: p.name,
+            slug: p.slug,
+            type: 'missing_size',
+            message: 'Select an available size or length.',
+            availableSizes: availSizes,
+          })
+          continue
+        }
+        const matchedVar = resolveProductVariant(activeVars, {
+          variantId: item.variantId,
+          size: item.size,
+        })
+        if (!matchedVar || !matchedVar.isActive) {
+          issues.push({
+            cartItemId: item.id,
+            productId: item.productId,
+            variantId: item.variantId,
+            name: p.name,
+            slug: p.slug,
+            type: 'invalid_size',
+            message: `Size ${item.size || ''} is not available.`,
+            availableSizes: availSizes,
+          })
+          continue
+        }
+        if (!isUnlimitedStock(matchedVar.inventoryQty)) {
+          const totalReq = requestedTotalsByVariant.get(matchedVar.id) || item.quantity
+          if (matchedVar.inventoryQty <= 0) {
+            issues.push({
+              cartItemId: item.id,
+              productId: item.productId,
+              variantId: matchedVar.id,
+              name: `${p.name} (${matchedVar.size})`,
+              slug: p.slug,
+              type: 'unavailable',
+              message: 'Out of Stock',
+              availableQty: 0,
+            })
+          } else if (totalReq > matchedVar.inventoryQty) {
+            issues.push({
+              cartItemId: item.id,
+              productId: item.productId,
+              variantId: matchedVar.id,
+              name: `${p.name} (${matchedVar.size})`,
+              slug: p.slug,
+              type: 'insufficient_stock',
+              message: `Only ${matchedVar.inventoryQty} available in stock for ${matchedVar.size} (you requested ${totalReq}).`,
+              availableQty: matchedVar.inventoryQty,
+            })
+          }
+        }
         continue
       }
 
@@ -125,7 +245,6 @@ export async function checkCartItemsCompatibility(items: CartItemInput[]) {
         }
       }
 
-      const catDetails = catalogMap[item.productId]
       const sizes = catDetails?.availableSizes || []
 
       if (sizes.length === 0 && item.size) {
@@ -246,6 +365,11 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
       // Verify each item
       const verifiedItems: {
         product: typeof dbProducts[0]
+        variantId?: string
+        variantType?: string
+        sku?: string
+        weight?: number | null
+        comparePrice?: number | null
         quantity: number
         size?: string
         unitPrice: number
@@ -254,10 +378,173 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
       let rawSubtotal = 0
 
+      // Load extended catalog metadata and relational variants inside the transaction
+      let metaStore = { lowStockThreshold: 3, products: {} as Record<string, any> }
+      let metaStoreModified = false
+      if (tx.siteSettings && typeof tx.siteSettings.findUnique === "function") {
+        try {
+          const metaRow = await tx.siteSettings.findUnique({
+            where: { id: CATALOG_METADATA_SETTINGS_ID },
+          })
+          metaStore = parseCatalogMetadata(metaRow?.shippingInfo)
+        } catch {
+          // Ignore if siteSettings not available in mock
+        }
+      }
+
+      const dbVariantsByProduct = new Map<string, ProductVariantRecord[]>()
+      if (tx.productVariant && typeof tx.productVariant.findMany === "function") {
+        try {
+          const allDbVars = await tx.productVariant.findMany({
+            where: { productId: { in: productIds } },
+            orderBy: { sortOrder: "asc" },
+          })
+          if (Array.isArray(allDbVars)) {
+            for (const row of allDbVars) {
+              const list = dbVariantsByProduct.get(row.productId) || []
+              list.push(coerceVariantRecord(row, list.length, row.variantType || "length"))
+              dbVariantsByProduct.set(row.productId, list)
+            }
+          }
+        } catch {
+          // Fallback to metaStore if table not yet migrated
+        }
+      }
+
       for (const item of cartItems) {
         const product = productMap.get(item.productId)
         if (!product || !product.isActive) {
           throw new Error(`El producto seleccionado ya no está disponible.`)
+        }
+
+        const prodMeta = metaStore.products[product.id] || {}
+        const dbVars = dbVariantsByProduct.get(product.id) || []
+        const metaVars =
+          prodMeta.hasVariants && Array.isArray(prodMeta.variants)
+            ? prodMeta.variants.map((v: any, idx: number) =>
+                coerceVariantRecord(v, idx, normalizeVariantType(prodMeta.variantType))
+              )
+            : []
+        const productVariants = dbVars.length > 0 ? dbVars : metaVars
+        const hasStructuredVariants = Boolean(
+          dbVars.length > 0 || (prodMeta.hasVariants && metaVars.length > 0)
+        )
+
+        if (hasStructuredVariants) {
+          const matchedVariant = resolveProductVariant(
+            productVariants,
+            { variantId: item.variantId, size: item.size },
+            true
+          )
+          if (!matchedVariant || !matchedVariant.isActive) {
+            const errWithMeta: any = new Error(
+              `Por favor selecciona una talla o longitud disponible para "${product.name}".`
+            )
+            errWithMeta.incompatibleProductId = product.id
+            errWithMeta.incompatibleCartItemId = item.id
+            throw errWithMeta
+          }
+          if (
+            item.size &&
+            matchedVariant.size.trim().toLowerCase() !== String(item.size).trim().toLowerCase()
+          ) {
+            throw new Error(
+              `La talla o longitud "${item.size}" no coincide con la variante seleccionada para "${product.name}".`
+            )
+          }
+
+          const unitPrice = matchedVariant.price
+          if (
+            product.currency.toUpperCase() !== "USD" ||
+            !Number.isFinite(unitPrice) ||
+            unitPrice <= 0
+          ) {
+            throw new Error("Invalid variant price or currency")
+          }
+
+          const isUnlimited = isUnlimitedStock(matchedVariant.inventoryQty)
+
+          if (isUnlimited) {
+            if (dbVars.length > 0 && tx.productVariant?.findFirst) {
+              const unlimVar = await tx.productVariant.findFirst({
+                where: {
+                  id: matchedVariant.id,
+                  productId: product.id,
+                  isActive: true,
+                  inventoryQty: { lt: 0 },
+                },
+              })
+              if (!unlimVar) {
+                throw new Error(
+                  `La variante "${matchedVariant.size}" de "${product.name}" ya no está disponible.`
+                )
+              }
+            }
+          } else {
+            // Limited stock mode for this variant: atomically decrement variant stock
+            if (dbVars.length > 0 && tx.productVariant?.updateMany) {
+              const varUpdate = await tx.productVariant.updateMany({
+                where: {
+                  id: matchedVariant.id,
+                  productId: product.id,
+                  isActive: true,
+                  inventoryQty: { gte: item.quantity },
+                },
+                data: {
+                  inventoryQty: { decrement: item.quantity },
+                },
+              })
+              if (varUpdate.count === 0) {
+                const latestVar = tx.productVariant.findUnique
+                  ? await tx.productVariant.findUnique({ where: { id: matchedVariant.id } })
+                  : null
+                const availQty =
+                  latestVar && latestVar.inventoryQty >= 0 ? latestVar.inventoryQty : 0
+                throw new Error(
+                  `No hay inventario suficiente para "${product.name} (${matchedVariant.size})". (Disponibles: ${availQty})`
+                )
+              }
+            } else {
+              if (matchedVariant.inventoryQty < item.quantity) {
+                const availQty = Math.max(0, matchedVariant.inventoryQty)
+                throw new Error(
+                  `No hay inventario suficiente para "${product.name} (${matchedVariant.size})". (Disponibles: ${availQty})`
+                )
+              }
+            }
+
+            // Update in-memory variant stock for subsequent items in the same cart and sync metadata + parent product
+            matchedVariant.inventoryQty -= item.quantity
+            if (prodMeta && Array.isArray(prodMeta.variants)) {
+              prodMeta.variants = prodMeta.variants.map((v: any) =>
+                v.id === matchedVariant.id
+                  ? { ...v, inventoryQty: matchedVariant.inventoryQty }
+                  : v
+              )
+              metaStoreModified = true
+            }
+            const agg = computeAggregateProductStateFromVariants(productVariants)
+            await tx.product.update({
+              where: { id: product.id },
+              data: { inventoryQty: agg.inventoryQty },
+            })
+          }
+
+          rawSubtotal += unitPrice * item.quantity
+
+          verifiedItems.push({
+            product,
+            variantId: matchedVariant.id,
+            variantType: matchedVariant.variantType,
+            sku: matchedVariant.sku || undefined,
+            weight: matchedVariant.weight ?? null,
+            comparePrice: matchedVariant.comparePrice ?? null,
+            quantity: item.quantity,
+            size: matchedVariant.size,
+            unitPrice,
+            stockMode: isUnlimited ? "unlimited" : "limited",
+          })
+          continue
         }
 
         try {
@@ -311,11 +598,31 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
 
         verifiedItems.push({
           product,
+          sku: prodMeta.sku || undefined,
+          weight: product.weight ?? null,
+          comparePrice: product.comparePrice ?? null,
           quantity: item.quantity,
           size: item.size,
           unitPrice,
           stockMode: isUnlimited ? "unlimited" : "limited",
         })
+      }
+
+      if (metaStoreModified && tx.siteSettings && typeof tx.siteSettings.upsert === "function") {
+        try {
+          const serialized = serializeCatalogMetadata(metaStore)
+          await tx.siteSettings.upsert({
+            where: { id: CATALOG_METADATA_SETTINGS_ID },
+            update: { shippingInfo: serialized },
+            create: {
+              id: CATALOG_METADATA_SETTINGS_ID,
+              siteName: "M&G Jewelry Catalog Metadata",
+              shippingInfo: serialized,
+            },
+          })
+        } catch {
+          // Ignore if siteSettings not available in mock
+        }
       }
 
       // Validate Promo / Discount code
@@ -395,7 +702,15 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
               quantity: vi.quantity,
               price: vi.unitPrice,
               size: vi.size || null,
-              options: JSON.stringify({ stockMode: vi.stockMode }),
+              options: JSON.stringify({
+                stockMode: vi.stockMode,
+                variantId: vi.variantId || null,
+                variantType: vi.variantType || null,
+                size: vi.size || null,
+                sku: vi.sku || null,
+                weight: vi.weight ?? null,
+                comparePrice: vi.comparePrice ?? null,
+              }),
             })),
           },
         },
@@ -426,14 +741,28 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         // Ignore
       }
 
+      const detailParts: string[] = []
+      if (vi.size) detailParts.push(`Size/Length: ${vi.size}`)
+      if (vi.sku) detailParts.push(`SKU: ${vi.sku}`)
+      if (vi.weight !== undefined && vi.weight !== null && vi.weight > 0) {
+        detailParts.push(`Weight: ${vi.weight}g`)
+      }
+
       return {
         price_data: {
           currency: (vi.product.currency || "USD").toLowerCase(),
           product_data: {
-            name: vi.product.name,
+            name: vi.size ? `${vi.product.name} (${vi.size})` : vi.product.name,
             images: imageUrl ? [imageUrl] : undefined,
-            description: vi.size ? `Size: ${vi.size}` : undefined,
+            description: detailParts.length > 0 ? detailParts.join(" | ") : undefined,
             tax_code: "txcd_99999999",
+            metadata: {
+              productId: vi.product.id,
+              variantId: vi.variantId || "",
+              size: vi.size || "",
+              sku: vi.sku || "",
+              weight: vi.weight != null ? String(vi.weight) : "",
+            },
           },
           unit_amount: Math.round(vi.unitPrice * 100),
           tax_behavior: "exclusive",
@@ -481,6 +810,18 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         discounts = [{ coupon: coupon.id }]
       }
 
+      const itemsSummary = JSON.stringify(
+        verifiedItems.map((vi) => ({
+          productId: vi.product.id,
+          variantId: vi.variantId || null,
+          size: vi.size || null,
+          sku: vi.sku || null,
+          price: vi.unitPrice,
+          weight: vi.weight ?? null,
+          qty: vi.quantity,
+        }))
+      ).slice(0, 490)
+
       // Parámetros idénticos para la solicitud inicial y cualquier reintento con la misma clave de idempotencia
       sessionCreateParams = {
         mode: "payment",
@@ -493,12 +834,19 @@ export async function createStripeCheckoutSession(formData: FormData, cartItems:
         shipping_options: shippingOptions,
         success_url: `${hostUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${hostUrl}/checkout/cancel?session_id={CHECKOUT_SESSION_ID}`,
-        payment_intent_data: { metadata: { orderId: order.id } },
+        payment_intent_data: {
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            itemsSummary,
+          },
+        },
         metadata: {
           orderId: order.id,
           orderNumber: order.orderNumber,
           promoCode: validPromoCode,
           taxMode: "stripe_tax",
+          itemsSummary,
         },
       }
 
@@ -813,6 +1161,18 @@ export async function verifyStripePayment(sessionId: string) {
     }
 
     assertSession(order, session)
+    if (order.paymentStatus === "pending" && session.payment_status === "paid") {
+      try {
+        await createPaymentService(db, stripeInstance).reconcile(session.id)
+        const refreshed = await db.order.findUnique({
+          where: { id: order.id },
+          include: { items: true, transactions: true },
+        })
+        if (refreshed) order = refreshed
+      } catch (recErr) {
+        console.warn("[verifyStripePayment] Auto-reconcile warning:", recErr)
+      }
+    }
     if (!["paid", "partially_refunded"].includes(order.paymentStatus)) {
       return { success: false, error: "Estamos confirmando el pedido. Actualiza esta página en unos segundos." }
     }

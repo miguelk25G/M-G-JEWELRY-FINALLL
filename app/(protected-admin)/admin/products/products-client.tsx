@@ -73,10 +73,17 @@ import {
 } from "@/lib/actions/products"
 import {
   DEFAULT_LOW_STOCK_THRESHOLD,
+  type ProductVariantRecord,
   type StockMode,
+  type VariantType,
   formatCategoryLabel,
   getAdminStockDisplay,
 } from "@/lib/inventory"
+import {
+  ProductVariantsEditor,
+  type VariantDraftRow,
+  validateVariantDrafts,
+} from "@/components/admin/product-variants-editor"
 import { toast } from "sonner"
 
 export type AdminProductItem = {
@@ -103,6 +110,9 @@ export type AdminProductItem = {
   sizes?: string[]
   lengths?: string[]
   variations?: string[]
+  hasVariants?: boolean
+  variantType?: VariantType
+  variants?: ProductVariantRecord[]
   images?: string[]
   image: string
   isActive: boolean
@@ -518,13 +528,40 @@ export function ProductsClient({
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground font-mono text-xs max-w-[180px] break-words [overflow-wrap:anywhere] whitespace-normal">
-                        {product.sku || "—"}
+                        {product.sku ||
+                          (product.hasVariants && product.variants?.length
+                            ? `${product.variants.length} variant SKUs`
+                            : "—")}
                       </TableCell>
                       <TableCell className="capitalize">
                         {product.categoryLabel || formatCategoryLabel(product.category)}
                       </TableCell>
                       <TableCell className="font-medium">
-                        {formatPrice(product.price)}
+                        {product.hasVariants && product.variants && product.variants.length > 0 ? (
+                          <div>
+                            {(() => {
+                              const activeVars = product.variants.filter((v) => v.isActive)
+                              const pool = activeVars.length > 0 ? activeVars : product.variants
+                              const prices = pool.map((v) => v.price)
+                              const minP = Math.min(...prices)
+                              const maxP = Math.max(...prices)
+                              return (
+                                <>
+                                  <span>
+                                    {minP === maxP
+                                      ? formatPrice(minP)
+                                      : `${formatPrice(minP)} – ${formatPrice(maxP)}`}
+                                  </span>
+                                  <span className="block text-[11px] text-muted-foreground font-normal">
+                                    {product.variants.length} size{product.variants.length === 1 ? "" : "s"}
+                                  </span>
+                                </>
+                              )
+                            })()}
+                          </div>
+                        ) : (
+                          formatPrice(product.price)
+                        )}
                       </TableCell>
                       <TableCell>
                         <button
@@ -738,6 +775,9 @@ function EditProductDialog({
   const [isBestSeller, setIsBestSeller] = useState(false)
   const [stockMode, setStockMode] = useState<StockMode>("limited")
   const [stockQty, setStockQty] = useState<number>(1)
+  const [hasVariants, setHasVariants] = useState<boolean>(false)
+  const [variantType, setVariantType] = useState<VariantType>("length")
+  const [variantDrafts, setVariantDrafts] = useState<VariantDraftRow[]>([])
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [replacingIndex, setReplacingIndex] = useState<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -781,6 +821,38 @@ function EditProductDialog({
     setIsBestSeller(Boolean(product.isBestSeller))
     setStockMode(product.isUnlimited || product.stock < 0 ? "unlimited" : "limited")
     setStockQty(product.stock < 0 ? 10 : Math.max(0, product.stock))
+
+    const initialHasVariants = Boolean(
+      product.hasVariants && Array.isArray(product.variants) && product.variants.length > 0
+    )
+    setHasVariants(initialHasVariants)
+    const defaultType: VariantType =
+      product.variantType ||
+      (product.category === "rings"
+        ? "ring_size"
+        : product.category === "bracelets"
+        ? "bracelet_size"
+        : "length")
+    setVariantType(defaultType)
+
+    if (initialHasVariants && product.variants) {
+      setVariantDrafts(
+        product.variants.map((v) => ({
+          id: v.id,
+          size: v.size,
+          price: String(v.price ?? ""),
+          comparePrice: v.comparePrice ? String(v.comparePrice) : "",
+          weight: v.weight !== null && v.weight !== undefined ? String(v.weight) : "",
+          sku: v.sku || "",
+          stockQuantity: v.isUnlimited || v.inventoryQty < 0 ? "0" : String(v.inventoryQty),
+          isUnlimited: Boolean(v.isUnlimited || v.inventoryQty < 0),
+          isActive: v.isActive !== false,
+        }))
+      )
+    } else {
+      setVariantDrafts([])
+    }
+
     setErrorMsg("")
   }, [product])
 
@@ -886,18 +958,27 @@ function EditProductDialog({
       setErrorMsg("Product description is required.")
       return
     }
-    const parsedPrice = Number(price)
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      setErrorMsg("Selling price must be greater than $0.00 USD.")
-      return
-    }
     if (images.length === 0) {
       setErrorMsg("Please keep or upload at least one product image.")
       return
     }
-    if (stockMode === "limited" && (stockQty < 0 || !Number.isInteger(Number(stockQty)))) {
-      setErrorMsg("Limited stock quantity must be a whole number (0 or greater).")
-      return
+
+    const parsedPrice = Number(price)
+    if (hasVariants) {
+      const varErrors = validateVariantDrafts(variantDrafts)
+      if (varErrors.length > 0) {
+        setErrorMsg(varErrors[0])
+        return
+      }
+    } else {
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        setErrorMsg("Selling price must be greater than $0.00 USD.")
+        return
+      }
+      if (stockMode === "limited" && (stockQty < 0 || !Number.isInteger(Number(stockQty)))) {
+        setErrorMsg("Limited stock quantity must be a whole number (0 or greater).")
+        return
+      }
     }
 
     // Merge any uncommitted chip inputs before saving
@@ -941,15 +1022,15 @@ function EditProductDialog({
         sku: sku.trim(),
         variantSkus,
         category,
-        price: parsedPrice,
-        comparePrice: comparePrice.trim() ? Number(comparePrice) : null,
+        price: hasVariants ? undefined : parsedPrice,
+        comparePrice: hasVariants ? undefined : (comparePrice.trim() ? Number(comparePrice) : null),
         images,
         material: material.trim(),
         karat: material.trim(),
         metalColor: metalColor.trim(),
         metalType: metalColor.trim(),
         stoneType,
-        weight: weight.trim() ? Number(weight) : null,
+        weight: hasVariants ? undefined : (weight.trim() ? Number(weight) : null),
         length: length.trim() ? Number(length) : null,
         sizes: finalSizes,
         lengths: finalLengths,
@@ -959,6 +1040,9 @@ function EditProductDialog({
         isBestSeller,
         stockMode,
         inventoryQty: stockMode === "unlimited" ? -1 : stockQty,
+        hasVariants,
+        variantType,
+        variants: hasVariants ? variantDrafts : [],
       })
 
       if (res.success && res.product) {
@@ -1097,37 +1181,78 @@ function EditProductDialog({
 
           <Separator />
 
-          {/* Section 2: Pricing & Status */}
+          {/* Section 2: Product Variants & Pricing */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              2. Pricing & Product Status
+              2. Product Variants, Pricing & Status
             </h3>
+
+            <ProductVariantsEditor
+              hasVariants={hasVariants}
+              onHasVariantsChange={(enabled) => {
+                setHasVariants(enabled)
+                if (enabled && variantDrafts.length === 0) {
+                  // If enabling variants on an existing product that had sizes/lengths, prefill from them
+                  const seedSizes =
+                    sizesList.length > 0
+                      ? sizesList
+                      : lengthsList.length > 0
+                      ? lengthsList
+                      : [""]
+                  setVariantDrafts(
+                    seedSizes.map((sz, idx) => ({
+                      id: `temp_${Date.now()}_${idx + 1}`,
+                      size: sz,
+                      price: price || "",
+                      comparePrice: comparePrice || "",
+                      weight: weight || "",
+                      sku:
+                        variantSkus[sz] ||
+                        (sku && sz ? `${sku}-${sz.replace(/[^a-zA-Z0-9.]/g, "")}` : ""),
+                      stockQuantity: stockMode === "unlimited" ? "0" : String(stockQty),
+                      isUnlimited: stockMode === "unlimited",
+                      isActive: true,
+                    }))
+                  )
+                }
+              }}
+              variantType={variantType}
+              onVariantTypeChange={setVariantType}
+              variants={variantDrafts}
+              onVariantsChange={setVariantDrafts}
+              baseSku={sku}
+            />
+
             <div className="grid sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-price">Selling Price (USD) *</Label>
-                <Input
-                  id="edit-price"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  required
-                  placeholder="4250.00"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-comparePrice">Compare-at Price (USD)</Label>
-                <Input
-                  id="edit-comparePrice"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={comparePrice}
-                  onChange={(e) => setComparePrice(e.target.value)}
-                  placeholder="Optional original price"
-                />
-              </div>
+              {!hasVariants && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-price">Selling Price (USD) *</Label>
+                    <Input
+                      id="edit-price"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      required={!hasVariants}
+                      placeholder="4250.00"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-comparePrice">Compare-at Price (USD)</Label>
+                    <Input
+                      id="edit-comparePrice"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={comparePrice}
+                      onChange={(e) => setComparePrice(e.target.value)}
+                      placeholder="Optional original price"
+                    />
+                  </div>
+                </>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="edit-status">Product Status</Label>
                 <select
@@ -1156,7 +1281,8 @@ function EditProductDialog({
 
           <Separator />
 
-          {/* Section 3: Inventory Configuration (Limited vs Unlimited) */}
+          {/* Section 3: Inventory Configuration (Limited vs Unlimited) - Only shown when single-price mode is active */}
+          {!hasVariants && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -1283,6 +1409,7 @@ function EditProductDialog({
               </div>
             )}
           </div>
+          )}
 
           <Separator />
 
@@ -1361,6 +1488,8 @@ function EditProductDialog({
               </div>
             </div>
 
+            {!hasVariants && (
+            <>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-weight">Product Weight (grams, optional)</Label>
@@ -1599,6 +1728,8 @@ function EditProductDialog({
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
 
           <Separator />
@@ -1766,8 +1897,22 @@ function ManageInventoryDialog({
   const [mode, setMode] = useState<StockMode>("limited")
   const [quantity, setQuantity] = useState<number>(0)
   const [threshold, setThreshold] = useState<number>(lowStockThreshold)
+  const [variantStocks, setVariantStocks] = useState<
+    {
+      id: string
+      size: string
+      price: number
+      stockMode: StockMode
+      quantity: number
+      isActive: boolean
+    }[]
+  >([])
   const [isSaving, setIsSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState("")
+
+  const hasVariants = Boolean(
+    product?.hasVariants && Array.isArray(product?.variants) && product.variants.length > 0
+  )
 
   useEffect(() => {
     if (!product) return
@@ -1775,6 +1920,20 @@ function ManageInventoryDialog({
     setMode(isUnlim ? "unlimited" : "limited")
     setQuantity(isUnlim ? 10 : Math.max(0, product.stock))
     setThreshold(product.lowStockThreshold ?? lowStockThreshold)
+    if (product.hasVariants && Array.isArray(product.variants)) {
+      setVariantStocks(
+        product.variants.map((v) => ({
+          id: v.id,
+          size: v.size,
+          price: v.price,
+          stockMode: v.isUnlimited || v.inventoryQty < 0 ? "unlimited" : "limited",
+          quantity: v.isUnlimited || v.inventoryQty < 0 ? 0 : Math.max(0, v.inventoryQty),
+          isActive: v.isActive !== false,
+        }))
+      )
+    } else {
+      setVariantStocks([])
+    }
     setErrorMsg("")
   }, [product, lowStockThreshold])
 
@@ -1787,7 +1946,7 @@ function ManageInventoryDialog({
     if (!product) return
     setErrorMsg("")
 
-    if (mode === "limited" && (!Number.isInteger(Number(quantity)) || quantity < 0)) {
+    if (!hasVariants && mode === "limited" && (!Number.isInteger(Number(quantity)) || quantity < 0)) {
       setErrorMsg("Stock quantity must be a non-negative whole number.")
       return
     }
@@ -1800,6 +1959,14 @@ function ManageInventoryDialog({
         stockMode: mode,
         quantity: mode === "unlimited" ? -1 : quantity,
         lowStockThreshold: threshold,
+        variantStocks: hasVariants
+          ? variantStocks.map((vs) => ({
+              id: vs.id,
+              stockMode: vs.stockMode,
+              quantity: vs.stockMode === "unlimited" ? -1 : vs.quantity,
+              isActive: vs.isActive,
+            }))
+          : undefined,
       })
 
       if (res.success && res.product) {
@@ -1827,7 +1994,7 @@ function ManageInventoryDialog({
 
   return (
     <Dialog open={!!product} onOpenChange={(open) => !open && !isSaving && onClose()}>
-      <DialogContent className="max-w-lg bg-background border-border">
+      <DialogContent className="max-w-lg bg-background border-border max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Manage Inventory</DialogTitle>
           <DialogDescription>
@@ -1843,6 +2010,106 @@ function ManageInventoryDialog({
             </div>
           )}
 
+          {hasVariants ? (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Manage stock independently for each size or length variant:
+              </p>
+              <div className="divide-y divide-border rounded-lg border border-border bg-card/40">
+                {variantStocks.map((vs, idx) => (
+                  <div key={vs.id} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{vs.size}</span>
+                        <span className="text-xs text-muted-foreground">
+                          (${vs.price.toFixed(2)})
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground mt-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={vs.stockMode === "unlimited"}
+                          onChange={(e) => {
+                            const nextUnlim = e.target.checked
+                            setVariantStocks((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? { ...item, stockMode: nextUnlim ? "unlimited" : "limited" }
+                                  : item
+                              )
+                            )
+                          }}
+                          className="h-3.5 w-3.5 accent-primary"
+                        />
+                        <span>Unlimited Stock</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {vs.stockMode === "unlimited" ? (
+                        <Badge variant="outline" className="gap-1">
+                          <InfinityIcon className="h-3.5 w-3.5" />
+                          Unlimited
+                        </Badge>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setVariantStocks((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx ? { ...item, quantity: Math.max(0, item.quantity - 1) } : item
+                                )
+                              )
+                            }
+                            disabled={vs.quantity <= 0}
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={vs.quantity}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10)
+                              setVariantStocks((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? { ...item, quantity: isNaN(val) ? 0 : Math.max(0, val) }
+                                    : item
+                                )
+                              )
+                            }}
+                            className="w-20 text-center font-semibold h-8 text-xs"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setVariantStocks((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx ? { ...item, quantity: item.quantity + 1 } : item
+                                )
+                              )
+                            }
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
           {/* Mode Selection */}
           <div className="grid grid-cols-2 gap-3">
             <button
@@ -1980,6 +2247,8 @@ function ManageInventoryDialog({
             <span className="text-muted-foreground">Table Stock Display:</span>
             <span className="font-semibold text-foreground">{preview.label}</span>
           </div>
+            </>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>

@@ -50,6 +50,27 @@ CREATE TABLE IF NOT EXISTS "QuizSubmission" (
   CONSTRAINT "QuizSubmission_pkey" PRIMARY KEY ("id")
 );
 
+-- 5. Create ProductVariant table for per-size/length pricing, weight, SKU, and inventory
+CREATE TABLE IF NOT EXISTS "ProductVariant" (
+  "id" TEXT NOT NULL,
+  "productId" TEXT NOT NULL,
+  "size" TEXT NOT NULL,
+  "variantType" TEXT NOT NULL DEFAULT 'length',
+  "price" DOUBLE PRECISION NOT NULL,
+  "comparePrice" DOUBLE PRECISION,
+  "weight" DOUBLE PRECISION,
+  "sku" TEXT,
+  "inventoryQty" INTEGER NOT NULL DEFAULT 0,
+  "isActive" BOOLEAN NOT NULL DEFAULT true,
+  "sortOrder" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ProductVariant_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "ProductVariant_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "ProductVariant_productId_idx" ON "ProductVariant"("productId");
+
 COMMIT;
 
 -- ==============================================================================

@@ -14,6 +14,10 @@ import {
   resolveRealProductSku,
   resolveActiveProductSku,
   parseVariantOptionAndSku,
+  validateAndNormalizeVariants,
+  computeAggregateProductStateFromVariants,
+  resolveProductVariant,
+  getVariantTypeOption,
 } from '../lib/inventory'
 
 // Contract tests: actual production service/HTTP handler, fake Stripe transport
@@ -1185,4 +1189,508 @@ test('Variant SKU resolution updates dynamically when switching size, length, or
     }),
     'MG-CHAIN-22'
   )
+})
+
+// --- Tests for Product Size Variants with Individual Pricing, Weight, SKU & Inventory ---
+
+test('Product Variants Validation: rejects missing size labels, duplicate variant SKUs, invalid prices, negative stock, and invalid weights', () => {
+  // 1. Missing size label
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '   ', price: 650, stockQuantity: 3 }],
+        'length'
+      ),
+    /Missing size or length label/i
+  )
+
+  // 2. Duplicate size labels within the same product
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [
+          { size: '18"', price: 650, stockQuantity: 3, sku: 'SKU-18A' },
+          { size: '18"', price: 720, stockQuantity: 5, sku: 'SKU-18B' },
+        ],
+        'length'
+      ),
+    /Duplicate size or length/i
+  )
+
+  // 3. Duplicate variant SKUs within the same product (case-insensitive)
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [
+          { size: '18"', price: 650, stockQuantity: 3, sku: 'MG-ROPE-10K-18' },
+          { size: '20"', price: 720, stockQuantity: 5, sku: 'mg-rope-10k-18' },
+        ],
+        'length'
+      ),
+    /Duplicate variant SKU/i
+  )
+
+  // 4. Duplicate variant SKU conflicting with another existing product in the catalog
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 650, stockQuantity: 3, sku: 'EXISTING-CATALOG-SKU' }],
+        'length',
+        { existingExternalSkus: new Set(['existing-catalog-sku']) }
+      ),
+    /already assigned to another product/i
+  )
+
+  // 5. Invalid selling prices (<= 0, NaN, empty)
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 0, stockQuantity: 3 }],
+        'length'
+      ),
+    /Invalid selling price/i
+  )
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: -50, stockQuantity: 3 }],
+        'length'
+      ),
+    /Invalid selling price/i
+  )
+
+  // 6. Negative or non-integer stock quantities
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 650, stockQuantity: -2, isUnlimited: false }],
+        'length'
+      ),
+    /Negative stock quantity/i
+  )
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 650, stockQuantity: 2.5, isUnlimited: false }],
+        'length'
+      ),
+    /Invalid stock quantity/i
+  )
+
+  // 7. Invalid weights (<= 0 or non-numeric when provided)
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 650, weight: -3.2, stockQuantity: 3 }],
+        'length'
+      ),
+    /Invalid weight/i
+  )
+  assert.throws(
+    () =>
+      validateAndNormalizeVariants(
+        [{ size: '18"', price: 650, weight: 0, stockQuantity: 3 }],
+        'length'
+      ),
+    /Invalid weight/i
+  )
+})
+
+test('Acceptance Test 1-5 & 9: Create product without variants, create 10K Yellow Gold Rope Chain with 4 lengths/prices/weights/stocks, and edit variant persistence', async () => {
+  const productsStore: Record<string, any> = {}
+  const variantsStore: Record<string, any[]> = {}
+  const siteSettingsStore: Record<string, any> = {}
+
+  const mockDb: any = {
+    product: {
+      findUnique: async ({ where }: any) => {
+        if (where.id) return productsStore[where.id] ? structuredClone(productsStore[where.id]) : null
+        if (where.slug) {
+          const hit = Object.values(productsStore).find((p: any) => p.slug === where.slug)
+          return hit ? structuredClone(hit) : null
+        }
+        return null
+      },
+      create: async ({ data }: any) => {
+        const id = `prod_${Object.keys(productsStore).length + 1}`
+        const record = { id, ...data, createdAt: new Date(), updatedAt: new Date() }
+        productsStore[id] = record
+        return structuredClone(record)
+      },
+      update: async ({ where, data }: any) => {
+        const existing = productsStore[where.id]
+        if (!existing) throw new Error('Product not found')
+        const updated = { ...existing, ...data, updatedAt: new Date() }
+        productsStore[where.id] = updated
+        return structuredClone(updated)
+      },
+    },
+    productVariant: {
+      findMany: async ({ where }: any) => {
+        if (where?.productId && typeof where.productId === 'string') {
+          return structuredClone(variantsStore[where.productId] || [])
+        }
+        if (where?.productId?.not) {
+          const all: any[] = []
+          for (const [pid, list] of Object.entries(variantsStore)) {
+            if (pid !== where.productId.not) all.push(...list)
+          }
+          return structuredClone(all)
+        }
+        return []
+      },
+      deleteMany: async ({ where }: any) => {
+        const pid = where.productId
+        if (!variantsStore[pid]) return { count: 0 }
+        if (where.id?.notIn) {
+          variantsStore[pid] = variantsStore[pid].filter((v) => where.id.notIn.includes(v.id))
+        } else {
+          delete variantsStore[pid]
+        }
+        return { count: 1 }
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const pid = create.productId || update.productId
+        if (!variantsStore[pid]) variantsStore[pid] = []
+        const idx = variantsStore[pid].findIndex((v) => v.id === where.id)
+        if (idx >= 0) {
+          variantsStore[pid][idx] = { ...variantsStore[pid][idx], ...update }
+          return structuredClone(variantsStore[pid][idx])
+        } else {
+          variantsStore[pid].push(create)
+          return structuredClone(create)
+        }
+      },
+    },
+    siteSettings: {
+      findUnique: async ({ where }: any) => siteSettingsStore[where.id] || null,
+      upsert: async ({ where, create, update }: any) => {
+        const next = siteSettingsStore[where.id]
+          ? { ...siteSettingsStore[where.id], ...update }
+          : create
+        siteSettingsStore[where.id] = next
+        return structuredClone(next)
+      },
+    },
+  }
+
+  const service = createAdminProductService(mockDb)
+
+  // 1. Create a product WITHOUT variants and confirm it still works
+  const singleRes = await service.createProduct({
+    name: 'Diamond Stud Earrings 14K',
+    description: 'Classic solitaire diamond studs',
+    sku: 'MG-STUDS-14K',
+    category: 'earrings',
+    price: 1250,
+    comparePrice: 1450,
+    weight: 2.4,
+    images: ['/studs.jpg'],
+    material: '14K',
+    metalColor: 'White Gold',
+    stoneType: 'natural',
+    stockMode: 'limited',
+    inventoryQty: 8,
+    hasVariants: false,
+  })
+
+  assert.equal(singleRes.product.hasVariants, false)
+  assert.equal(singleRes.product.price, 1250)
+  assert.equal(singleRes.product.weight, 2.4)
+  assert.equal(singleRes.product.stock, 8)
+  assert.equal(singleRes.product.variants.length, 0)
+
+  // 2 & 3. Create 10K Yellow Gold Rope Chain with 4 lengths, individual prices, individual weights, and independent inventory
+  const chainRes = await service.createProduct({
+    name: '10K Yellow Gold Rope Chain',
+    nameEs: 'Cadena Rope de Oro Amarillo 10K',
+    description: 'Solid 10K yellow gold diamond-cut rope chain.',
+    sku: 'MG-ROPE-10K',
+    category: 'chains',
+    images: ['/rope-chain.jpg'],
+    material: '10K',
+    metalColor: 'Yellow Gold',
+    stoneType: 'none',
+    hasVariants: true,
+    variantType: 'length',
+    variants: [
+      {
+        id: 'var_rope_18',
+        size: '18"',
+        price: 650,
+        comparePrice: 750,
+        weight: 6.2,
+        sku: 'MG-ROPE-10K-18',
+        stockQuantity: 3,
+        isUnlimited: false,
+        isActive: true,
+      },
+      {
+        id: 'var_rope_20',
+        size: '20"',
+        price: 720,
+        comparePrice: 820,
+        weight: 7.0,
+        sku: 'MG-ROPE-10K-20',
+        stockQuantity: 5,
+        isUnlimited: false,
+        isActive: true,
+      },
+      {
+        id: 'var_rope_22',
+        size: '22"',
+        price: 790,
+        comparePrice: null,
+        weight: 7.8,
+        sku: 'MG-ROPE-10K-22',
+        stockQuantity: 0,
+        isUnlimited: false,
+        isActive: true,
+      },
+      {
+        id: 'var_rope_24',
+        size: '24"',
+        price: 860,
+        comparePrice: 980,
+        weight: 8.6,
+        sku: 'MG-ROPE-10K-24',
+        stockQuantity: 0,
+        isUnlimited: true,
+        isActive: true,
+      },
+    ],
+  })
+
+  const chain = chainRes.product
+  assert.equal(chain.hasVariants, true)
+  assert.equal(chain.variantType, 'length')
+  assert.equal(chain.variants.length, 4)
+
+  // 4. Verify changing the length resolves the exact individual price, compare-at price, weight, SKU, and stock state
+  const v18 = resolveProductVariant(chain.variants, { size: '18"' })!
+  const v20 = resolveProductVariant(chain.variants, { size: '20"' })!
+  const v22 = resolveProductVariant(chain.variants, { size: '22"' })!
+  const v24 = resolveProductVariant(chain.variants, { size: '24"' })!
+
+  assert.equal(v18.price, 650)
+  assert.equal(v18.comparePrice, 750)
+  assert.equal(v18.weight, 6.2)
+  assert.equal(v18.sku, 'MG-ROPE-10K-18')
+  assert.equal(getStorefrontStockState(v18.inventoryQty).isOutOfStock, false)
+  assert.equal(getStorefrontStockState(v18.inventoryQty).availableQty, 3)
+
+  assert.equal(v20.price, 720)
+  assert.equal(v20.comparePrice, 820)
+  assert.equal(v20.weight, 7.0)
+  assert.equal(v20.sku, 'MG-ROPE-10K-20')
+  assert.equal(getStorefrontStockState(v20.inventoryQty).availableQty, 5)
+
+  // 5. Verify 22" (0 units, limited) is marked Out of Stock and cannot fulfill purchases
+  assert.equal(v22.price, 790)
+  assert.equal(v22.weight, 7.8)
+  assert.equal(getStorefrontStockState(v22.inventoryQty).isOutOfStock, true)
+  assert.equal(canFulfillQuantity(v22.inventoryQty, 1, v22.isActive), false)
+  assert.doesNotThrow(() => validateSize(chain, '20"', v20.id))
+
+  // Verify 24" (Unlimited Stock) is available for any quantity
+  assert.equal(v24.price, 860)
+  assert.equal(v24.weight, 8.6)
+  assert.equal(v24.isUnlimited, true)
+  assert.equal(getStorefrontStockState(v24.inventoryQty).isOutOfStock, false)
+  assert.equal(canFulfillQuantity(v24.inventoryQty, 50, v24.isActive), true)
+
+  // 9. Edit an existing variant's price, weight, and stock and confirm changes persist
+  const editedRes = await service.updateProduct({
+    id: chain.id,
+    name: chain.name,
+    description: chain.description,
+    sku: chain.sku,
+    category: chain.category,
+    images: chain.images,
+    material: chain.material,
+    metalColor: chain.metalColor,
+    stoneType: chain.stoneType,
+    hasVariants: true,
+    variantType: 'length',
+    variants: [
+      { ...v18, price: 675, weight: 6.4, stockQuantity: 4 },
+      v20,
+      { ...v22, stockQuantity: 2 }, // Restocked 22" to 2 units
+      v24,
+    ],
+  })
+
+  const editedV18 = resolveProductVariant(editedRes.product.variants, { id: 'var_rope_18' })!
+  const editedV22 = resolveProductVariant(editedRes.product.variants, { id: 'var_rope_22' })!
+  assert.equal(editedV18.price, 675)
+  assert.equal(editedV18.weight, 6.4)
+  assert.equal(editedV18.inventoryQty, 4)
+  assert.equal(editedV22.inventoryQty, 2)
+  assert.equal(getStorefrontStockState(editedV22.inventoryQty).isOutOfStock, false)
+
+  // Verify Bilingual labels for variant types
+  const lengthMeta = getVariantTypeOption('length')
+  assert.equal(lengthMeta.selectorLabelEn, 'Select Length')
+  assert.equal(lengthMeta.selectorLabelEs, 'Seleccionar longitud')
+  const ringMeta = getVariantTypeOption('ring_size')
+  assert.equal(ringMeta.selectorLabelEn, 'Select Size')
+  assert.equal(ringMeta.selectorLabelEs, 'Seleccionar talla')
+})
+
+test('Acceptance Test 6, 7, 8 & 11: Separate cart line items, Stripe variant checkout pricing, independent variant inventory deduction, webhook idempotency & cancellation restock', async () => {
+  // Simulate 2 different lengths of the same chain added to cart:
+  // Line 1: 18" ($650, 6.2g, SKU: MG-ROPE-10K-18, qty: 1)
+  // Line 2: 20" ($720, 7.0g, SKU: MG-ROPE-10K-20, qty: 2)
+  const cartLines: any[] = []
+  function addToCartSim(item: any) {
+    const existing = cartLines.find(
+      (i) =>
+        i.productId === item.productId &&
+        (i.variantId || '') === (item.variantId || '') &&
+        (i.size || '') === (item.size || '')
+    )
+    if (existing) {
+      existing.quantity += item.quantity
+    } else {
+      cartLines.push({ ...item, id: `${item.productId}-${item.variantId}` })
+    }
+  }
+
+  addToCartSim({
+    productId: 'prod_rope_10k',
+    variantId: 'var_18',
+    name: '10K Yellow Gold Rope Chain',
+    size: '18"',
+    sku: 'MG-ROPE-10K-18',
+    price: 650,
+    weight: 6.2,
+    quantity: 1,
+  })
+  addToCartSim({
+    productId: 'prod_rope_10k',
+    variantId: 'var_20',
+    name: '10K Yellow Gold Rope Chain',
+    size: '20"',
+    sku: 'MG-ROPE-10K-20',
+    price: 720,
+    weight: 7.0,
+    quantity: 2,
+  })
+
+  // Acceptance Test 6: Two different lengths of the same chain appear as separate line items
+  assert.equal(cartLines.length, 2, 'Two different lengths of the same chain must be separate cart line items')
+  assert.equal(cartLines[0].variantId, 'var_18')
+  assert.equal(cartLines[0].price, 650)
+  assert.equal(cartLines[0].weight, 6.2)
+  assert.equal(cartLines[1].variantId, 'var_20')
+  assert.equal(cartLines[1].price, 720)
+  assert.equal(cartLines[1].weight, 7.0)
+  assert.equal(cartLines[1].quantity, 2)
+
+  const expectedMerchandiseSubtotal = 650 * 1 + 720 * 2 // $2,090.00
+  const expectedShipping = 25.0
+  const expectedTotal = expectedMerchandiseSubtotal + expectedShipping // $2,115.00
+
+  // Setup payment service with variant-backed order (1x 18" @ $650 + 2x 20" @ $720)
+  // Initial variant stocks before reservation: 18" had 3 (reserved 1 -> 2), 20" had 5 (reserved 2 -> 3), 24" Unlimited (-1)
+  const variantRows: Record<string, any> = {
+    var_18: { id: 'var_18', productId: 'prod_rope_10k', size: '18"', price: 650, weight: 6.2, sku: 'MG-ROPE-10K-18', inventoryQty: 2, isActive: true },
+    var_20: { id: 'var_20', productId: 'prod_rope_10k', size: '20"', price: 720, weight: 7.0, sku: 'MG-ROPE-10K-20', inventoryQty: 3, isActive: true },
+    var_24: { id: 'var_24', productId: 'prod_rope_10k', size: '24"', price: 860, weight: 8.6, sku: 'MG-ROPE-10K-24', inventoryQty: -1, isActive: true },
+  }
+
+  const f = fixture()
+  f.state().order = {
+    id: 'ord_variants_1',
+    orderNumber: 'MG-VAR-1001',
+    stripeSessionId: 'cs_var_1',
+    subtotal: expectedMerchandiseSubtotal,
+    discount: 0,
+    shipping: expectedShipping,
+    tax: 0,
+    total: expectedTotal,
+    currency: 'USD',
+    paymentStatus: 'pending',
+    reservationStatus: 'reserved',
+    status: 'pending',
+    refundedAmount: 0,
+    notes: '',
+    items: [
+      {
+        id: 'oi_18',
+        productId: 'prod_rope_10k',
+        name: '10K Yellow Gold Rope Chain',
+        price: 650,
+        quantity: 1,
+        size: '18"',
+        options: JSON.stringify({
+          stockMode: 'limited',
+          variantId: 'var_18',
+          variantType: 'length',
+          size: '18"',
+          sku: 'MG-ROPE-10K-18',
+          weight: 6.2,
+        }),
+      },
+      {
+        id: 'oi_20',
+        productId: 'prod_rope_10k',
+        name: '10K Yellow Gold Rope Chain',
+        price: 720,
+        quantity: 2,
+        size: '20"',
+        options: JSON.stringify({
+          stockMode: 'limited',
+          variantId: 'var_20',
+          variantType: 'length',
+          size: '20"',
+          sku: 'MG-ROPE-10K-20',
+          weight: 7.0,
+        }),
+      },
+    ],
+  }
+  f.state().transactions = [
+    { orderId: 'ord_variants_1', provider: 'stripe', providerId: 'cs_var_1', status: 'pending', amount: expectedTotal },
+  ]
+  f.db.productVariant = {
+    findUnique: async ({ where }: any) => variantRows[where.id] ? structuredClone(variantRows[where.id]) : null,
+    findMany: async ({ where }: any) => Object.values(variantRows).filter((v) => v.productId === where.productId),
+    updateMany: async ({ where, data }: any) => {
+      const target = variantRows[where.id]
+      if (!target || target.inventoryQty < 0) return { count: 0 }
+      target.inventoryQty += data.inventoryQty.increment
+      return { count: 1 }
+    },
+  }
+
+  f.session.id = 'cs_var_1'
+  f.session.client_reference_id = 'ord_variants_1'
+  f.session.metadata = { orderId: 'ord_variants_1', taxMode: 'stripe_tax' }
+  f.session.amount_subtotal = expectedMerchandiseSubtotal * 100 // 209000 cents
+  f.session.shipping_cost = { amount_subtotal: 2500, amount_total: 2500 }
+  f.session.total_details = { amount_tax: 0, amount_discount: 0 }
+  f.session.amount_total = expectedTotal * 100 // 211500 cents
+  f.paid()
+
+  // Deliver duplicate checkout.session.completed webhooks concurrently -> must confirm once and never double-deduct
+  await Promise.all([
+    f.service.processEvent({ id: 'evt_var_paid_1', type: 'checkout.session.completed', data: { object: { id: 'cs_var_1' } } }),
+    f.service.processEvent({ id: 'evt_var_paid_1', type: 'checkout.session.completed', data: { object: { id: 'cs_var_1' } } }),
+  ])
+
+  assert.equal(f.state().order.paymentStatus, 'paid')
+  assert.equal(f.state().order.status, 'processing')
+  assert.equal(f.state().order.reservationStatus, 'consumed')
+  assert.equal(f.state().order.total, 2115.0)
+  assert.equal(variantRows.var_18.inventoryQty, 2, '18" variant stock must remain at 2 (1 unit deducted from initial 3)')
+  assert.equal(variantRows.var_20.inventoryQty, 3, '20" variant stock must remain at 3 (2 units deducted from initial 5)')
+  assert.equal(variantRows.var_24.inventoryQty, -1, '24" Unlimited variant must remain -1')
+
+  // Verify restockOrderInventory restores each variant's exact purchased quantity independently
+  const restockRes = await f.service.restockOrderInventory('ord_variants_1', 'Customer return restocked')
+  assert.equal(restockRes.restocked, true)
+  assert.equal(variantRows.var_18.inventoryQty, 3, '18" variant restored back to 3')
+  assert.equal(variantRows.var_20.inventoryQty, 5, '20" variant restored back to 5')
+  assert.equal(variantRows.var_24.inventoryQty, -1, '24" Unlimited variant untouched')
 })

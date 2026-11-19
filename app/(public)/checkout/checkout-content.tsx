@@ -51,8 +51,11 @@ export function CheckoutContent() {
     const payload = items.map((i) => ({
       id: i.id,
       productId: i.productId,
+      variantId: i.variantId,
       quantity: i.quantity,
       size: i.size,
+      sku: i.sku,
+      weight: i.weight,
     }))
     checkCartItemsCompatibility(payload).then((res) => {
       if (active) {
@@ -171,8 +174,11 @@ export function CheckoutContent() {
       const cartPayload = items.map((item) => ({
         id: item.id,
         productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
         size: item.size,
+        sku: item.sku,
+        weight: item.weight,
       }))
 
       // Initiate Stripe Checkout session from the server
@@ -616,11 +622,25 @@ export function CheckoutContent() {
                                       value={item.size && availableSizes.includes(item.size) ? item.size : ""}
                                       onChange={(e) => {
                                         if (e.target.value) {
-                                          updateItemSize(item.id, e.target.value)
+                                          const nextSize = e.target.value
+                                          const matchedVar = cat?.variants?.find((v) => v.size === nextSize)
+                                          updateItemSize(
+                                            item.id,
+                                            nextSize,
+                                            matchedVar
+                                              ? {
+                                                  variantId: matchedVar.id,
+                                                  price: matchedVar.price,
+                                                  sku: matchedVar.sku || undefined,
+                                                  weight: matchedVar.weight,
+                                                  maxStock: matchedVar.isUnlimited ? undefined : matchedVar.inventoryQty,
+                                                }
+                                              : undefined
+                                          )
                                           toast.success(
                                             locale === 'es'
-                                              ? `Talla actualizada a ${e.target.value}`
-                                              : `Size updated to ${e.target.value}`
+                                              ? `Talla actualizada a ${nextSize}`
+                                              : `Size updated to ${nextSize}`
                                           )
                                         }
                                       }}
@@ -648,9 +668,20 @@ export function CheckoutContent() {
 
                           if (item.size) {
                             return (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {locale === 'es' ? "Talla:" : "Size:"} {item.size}
-                              </p>
+                              <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                                <p>
+                                  {item.variantType === 'length'
+                                    ? (locale === 'es' ? "Longitud:" : "Length:")
+                                    : (locale === 'es' ? "Talla:" : "Size:")}{' '}
+                                  {item.size}
+                                  {item.weight !== undefined && item.weight !== null && item.weight > 0 && (
+                                    <span> • {item.weight} g</span>
+                                  )}
+                                </p>
+                                {item.sku && (
+                                  <p className="font-mono text-[11px]">SKU: {item.sku}</p>
+                                )}
+                              </div>
                             )
                           }
 

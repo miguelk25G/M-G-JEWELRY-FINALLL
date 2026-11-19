@@ -68,7 +68,20 @@ export function CartPageContent() {
                           <h3 className="font-medium text-foreground">{item.name}</h3>
                           {item.size && (
                             <p className="mt-1 text-sm text-muted-foreground">
-                              {t('product.size')}: {item.size}
+                              {item.variantType === 'length'
+                                ? t('product.length')
+                                : t('product.size')}
+                              : {item.size}
+                            </p>
+                          )}
+                          {item.weight !== undefined && item.weight !== null && item.weight > 0 && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('product.weight')}: {item.weight} g
+                            </p>
+                          )}
+                          {item.sku && (
+                            <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                              SKU: {item.sku}
                             </p>
                           )}
                           {item.karat && (

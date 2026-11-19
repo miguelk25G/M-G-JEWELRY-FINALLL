@@ -115,20 +115,28 @@ export function CheckoutSuccessContent({
               {locale === 'es' ? "Piezas Adquiridas" : "Acquired Pieces"}
             </h2>
             <div className="divide-y divide-border rounded-lg border border-border bg-secondary/30 p-4 space-y-3">
-              {order.items.map((it) => (
+              {order.items.map((it: any) => {
+                let opts: any = {}
+                try {
+                  if (it.options) opts = JSON.parse(it.options)
+                } catch {}
+                return (
                 <div key={it.id} className="pt-3 first:pt-0 flex justify-between items-center text-sm">
                   <div>
                     <p className="font-medium text-foreground">{it.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {locale === 'es' ? "Cantidad:" : "Qty:"} {it.quantity}
-                      {it.size && ` | ${locale === 'es' ? "Talla:" : "Size:"} ${it.size}`}
+                      {it.size && ` | ${locale === 'es' ? "Talla/Longitud:" : "Size/Length:"} ${it.size}`}
+                      {opts.weight != null && opts.weight > 0 && ` | ${locale === 'es' ? "Peso:" : "Weight:"} ${opts.weight}g`}
+                      {opts.sku && ` | SKU: ${opts.sku}`}
                     </p>
                   </div>
                   <span className="font-semibold text-foreground">
                     {formatPrice(it.price * it.quantity)}
                   </span>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 

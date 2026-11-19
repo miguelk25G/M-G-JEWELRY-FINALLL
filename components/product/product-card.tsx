@@ -4,6 +4,7 @@ import React from "react"
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Heart, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +12,7 @@ import { useFavoritesStore } from '@/lib/store/favorites-store'
 import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
-import { getStorefrontStockState, parseImagesList } from '@/lib/inventory'
+import { getStorefrontStockState, parseImagesList, parseStringList } from '@/lib/inventory'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -30,11 +31,13 @@ interface ProductCardProps {
     stoneType: string
     isBestSeller?: boolean
     inventoryQty: number
+    sizes?: string | null
   }
   className?: string
 }
 
 export function ProductCard({ product, className }: ProductCardProps) {
+  const router = useRouter()
   const { t, locale } = useTranslation()
   const { toggleItem, isFavorite } = useFavoritesStore()
   const addToCart = useCartStore((state) => state.addItem)
@@ -48,6 +51,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const isLowStock = stockState.isLowStock
   const isOutOfStock = stockState.isOutOfStock
   const favorite = isFavorite(product.id)
+  const requiresSizeSelection = parseStringList(product.sizes).length > 0
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -64,6 +68,10 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (requiresSizeSelection) {
+      router.push(`/product/${product.slug}`)
+      return
+    }
     if (!isOutOfStock) {
       const existingQty = cartItems
         .filter((item) => item.productId === product.id)

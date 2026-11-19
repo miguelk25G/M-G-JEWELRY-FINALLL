@@ -8,34 +8,62 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { createProductAction } from "@/lib/actions/products"
+import {
+  ProductVariantsEditor,
+  type VariantDraftRow,
+  validateVariantDrafts,
+} from "@/components/admin/product-variants-editor"
+import { type VariantType } from "@/lib/inventory"
 import { Loader2, ArrowLeft, UploadCloud, Infinity as InfinityIcon, Check } from "lucide-react"
 
 export default function NewProductPage() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
+  const [sku, setSku] = useState("")
   const [stockMode, setStockMode] = useState<"limited" | "unlimited">("limited")
   const [inventoryQty, setInventoryQty] = useState<number>(1)
 
+  // Product Variants state
+  const [hasVariants, setHasVariants] = useState(false)
+  const [variantType, setVariantType] = useState<VariantType>("length")
+  const [variants, setVariants] = useState<VariantDraftRow[]>([])
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setIsSubmitting(true)
     setError("")
+
+    if (hasVariants) {
+      const variantErrors = validateVariantDrafts(variants)
+      if (variantErrors.length > 0) {
+        setError(variantErrors[0])
+        return
+      }
+    }
+
+    setIsSubmitting(true)
 
     try {
       const formData = new FormData(e.currentTarget)
       formData.set("stockMode", stockMode)
       formData.set("inventoryQty", stockMode === "unlimited" ? "-1" : String(Math.max(0, inventoryQty)))
+      formData.set("hasVariants", hasVariants ? "true" : "false")
+      formData.set("variantType", variantType)
+      if (hasVariants) {
+        formData.set("variantsJson", JSON.stringify(variants))
+      }
       await createProductAction(formData)
       // router.push is handled by the server action's redirect
     } catch (err: any) {
-      setError(err.message || "Failed to create product")
-      setIsSubmitting(false)
+      if (err?.message && !String(err.message).includes("NEXT_REDIRECT")) {
+        setError(err.message || "Failed to create product")
+        setIsSubmitting(false)
+      }
     }
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center gap-4">
         <Button variant="outline" size="icon" onClick={() => router.push("/admin/products")}>
           <ArrowLeft className="h-4 w-4" />
@@ -60,24 +88,37 @@ export default function NewProductPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Product Name (English)</Label>
-                <Input id="name" name="name" required placeholder="e.g. Diamond Tennis Bracelet" />
+                <Input id="name" name="name" required placeholder="e.g. 10K Yellow Gold Rope Chain" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="nameEs">Product Name (Spanish)</Label>
-                <Input id="nameEs" name="nameEs" placeholder="e.g. Pulsera de Diamantes" />
+                <Input id="nameEs" name="nameEs" placeholder="e.g. Cadena Rope de Oro Amarillo 10K" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="sku">SKU (Optional)</Label>
-                <Input id="sku" name="sku" placeholder="e.g. MG-BRACELET-01" className="font-mono" />
+                <Input
+                  id="sku"
+                  name="sku"
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  placeholder="e.g. MG-ROPE-10K"
+                  className="font-mono"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
                 <select
                   id="category"
                   name="category"
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === "chains" || val === "necklaces") setVariantType("length")
+                    else if (val === "rings") setVariantType("ring_size")
+                    else if (val === "bracelets") setVariantType("bracelet_size")
+                  }}
                   className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   required
                 >
@@ -92,19 +133,13 @@ export default function NewProductPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea id="description" name="description" required placeholder="Beautiful diamond bracelet..." rows={3} />
+              <Label htmlFor="description">Description (English)</Label>
+              <Textarea id="description" name="description" required placeholder="Beautiful diamond bracelet or solid gold chain..." rows={3} />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="price">Selling Price ($ USD)</Label>
-                <Input id="price" name="price" type="number" step="0.01" min="0.01" required placeholder="1999.99" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="comparePrice">Compare-at Price ($ USD, Optional)</Label>
-                <Input id="comparePrice" name="comparePrice" type="number" step="0.01" min="0" placeholder="2499.99" />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="descriptionEs">Description (Spanish, Optional)</Label>
+              <Textarea id="descriptionEs" name="descriptionEs" placeholder="Descripción en español (opcional)..." rows={2} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -122,88 +157,119 @@ export default function NewProductPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="weight">Weight (grams, optional)</Label>
-                <Input id="weight" name="weight" type="number" step="0.01" min="0" placeholder="e.g. 12.5" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="length">Length (inches, optional)</Label>
-                <Input id="length" name="length" type="number" step="0.1" min="0" placeholder="e.g. 20" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sizes">Available Sizes (comma-separated)</Label>
-                <Input id="sizes" name="sizes" placeholder="e.g. 6, 7, 8" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Inventory Configuration</CardTitle>
-            <CardDescription>Choose Limited Stock or Unlimited Stock (for on-demand wholesale items).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setStockMode("limited")}
-                className={`p-4 rounded-lg border text-left transition-all ${
-                  stockMode === "limited"
-                    ? "border-foreground bg-foreground/5 ring-1 ring-foreground"
-                    : "border-border hover:border-foreground/50"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-sm">Limited Stock</span>
-                  {stockMode === "limited" && <Check className="h-4 w-4" />}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Enter exact available quantity. Automatically deducts on paid orders.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockMode("unlimited")}
-                className={`p-4 rounded-lg border text-left transition-all ${
-                  stockMode === "unlimited"
-                    ? "border-foreground bg-foreground/5 ring-1 ring-foreground"
-                    : "border-border hover:border-foreground/50"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-sm flex items-center gap-1.5">
-                    <InfinityIcon className="h-4 w-4" />
-                    Unlimited Stock
-                  </span>
-                  {stockMode === "unlimited" && <Check className="h-4 w-4" />}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  No stock restriction. Ideal for Stuller & Quality Gold on-demand pieces.
-                </p>
-              </button>
+            {/* Product Variants Section */}
+            <div className="pt-2">
+              <ProductVariantsEditor
+                hasVariants={hasVariants}
+                onHasVariantsChange={setHasVariants}
+                variantType={variantType}
+                onVariantTypeChange={setVariantType}
+                variants={variants}
+                onVariantsChange={setVariants}
+                baseSku={sku}
+              />
             </div>
 
-            {stockMode === "limited" && (
-              <div className="space-y-2 max-w-xs">
-                <Label htmlFor="inventoryQty">Available Quantity</Label>
-                <Input
-                  id="inventoryQty"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={inventoryQty}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10)
-                    setInventoryQty(isNaN(val) ? 0 : Math.max(0, val))
-                  }}
-                />
-              </div>
+            {/* Single-Price Fields (shown when variants are disabled) */}
+            {!hasVariants && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="price">Selling Price ($ USD)</Label>
+                    <Input id="price" name="price" type="number" step="0.01" min="0.01" required={!hasVariants} placeholder="1999.99" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="comparePrice">Compare-at Price ($ USD, Optional)</Label>
+                    <Input id="comparePrice" name="comparePrice" type="number" step="0.01" min="0" placeholder="2499.99" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="weight">Weight (grams, optional)</Label>
+                    <Input id="weight" name="weight" type="number" step="0.01" min="0" placeholder="e.g. 12.5" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="length">Length (inches, optional)</Label>
+                    <Input id="length" name="length" type="number" step="0.1" min="0" placeholder="e.g. 20" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sizes">Available Sizes (comma-separated, same price)</Label>
+                    <Input id="sizes" name="sizes" placeholder="e.g. 6, 7, 8" />
+                  </div>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
+
+        {!hasVariants && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Inventory Configuration</CardTitle>
+              <CardDescription>Choose Limited Stock or Unlimited Stock (for on-demand wholesale items).</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStockMode("limited")}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    stockMode === "limited"
+                      ? "border-foreground bg-foreground/5 ring-1 ring-foreground"
+                      : "border-border hover:border-foreground/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-sm">Limited Stock</span>
+                    {stockMode === "limited" && <Check className="h-4 w-4" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Enter exact available quantity. Automatically deducts on paid orders.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStockMode("unlimited")}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    stockMode === "unlimited"
+                      ? "border-foreground bg-foreground/5 ring-1 ring-foreground"
+                      : "border-border hover:border-foreground/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-sm flex items-center gap-1.5">
+                      <InfinityIcon className="h-4 w-4" />
+                      Unlimited Stock
+                    </span>
+                    {stockMode === "unlimited" && <Check className="h-4 w-4" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    No stock restriction. Ideal for Stuller & Quality Gold on-demand pieces.
+                  </p>
+                </button>
+              </div>
+
+              {stockMode === "limited" && (
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="inventoryQty">Available Quantity</Label>
+                  <Input
+                    id="inventoryQty"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={inventoryQty}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10)
+                      setInventoryQty(isNaN(val) ? 0 : Math.max(0, val))
+                    }}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
