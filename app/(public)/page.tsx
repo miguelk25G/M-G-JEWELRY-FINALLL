@@ -10,11 +10,20 @@ import { db } from '@/lib/db'
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const dbProducts = await db.product.findMany({
+  // The homepage and /collections/best-sellers must use the same selection rule.
+  // Until an admin marks products as Best Seller, show active new arrivals instead of an empty section.
+  const markedBestSellers = await db.product.findMany({
     take: 8,
     orderBy: { createdAt: 'desc' },
-    where: { isActive: true }
+    where: { isActive: true, isBestSeller: true },
   })
+  const dbProducts = markedBestSellers.length > 0
+    ? markedBestSellers
+    : await db.product.findMany({
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+        where: { isActive: true },
+      })
   
   const dbCollections = await db.collection.findMany({
     take: 3,
