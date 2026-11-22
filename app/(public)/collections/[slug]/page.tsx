@@ -104,22 +104,28 @@ export default async function CollectionPage({ params }: Props) {
   }
 
   let dbQuery = {}
-  let queryLimit: number | undefined = undefined
-  
+
   if (collectionKey === 'best-sellers') {
     dbQuery = { isBestSeller: true, isActive: true }
-    queryLimit = 10
   } else if (collectionKey === 'diamond-rings') {
     dbQuery = { category: { equals: 'rings', mode: 'insensitive' }, isActive: true }
   } else {
     dbQuery = { category: { equals: collectionKey, mode: 'insensitive' }, isActive: true }
   }
 
-  const dbProducts = await db.product.findMany({
-      where: dbQuery as any,
-      orderBy: { createdAt: 'desc' },
-      take: queryLimit
+  let dbProducts = await db.product.findMany({
+    where: dbQuery as any,
+    orderBy: { createdAt: 'desc' },
   })
+
+  // Match the homepage: before any products are tagged as Best Seller,
+  // display active products rather than sending visitors to an empty collection.
+  if (collectionKey === 'best-sellers' && dbProducts.length === 0) {
+    dbProducts = await db.product.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   // Format products
   const formattedProducts = dbProducts.map(p => ({
