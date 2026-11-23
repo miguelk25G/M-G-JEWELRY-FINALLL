@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { ProductCard } from '@/components/product/product-card'
 import { useTranslation } from '@/i18n/locale-context'
 import { cn } from '@/lib/utils'
+import type { ProductShowcaseBadge } from '@/lib/best-sellers'
 
 interface Product {
   id: string
@@ -35,15 +36,20 @@ interface Product {
   karat: string | null
   stoneType: string
   isBestSeller: boolean
+  isFeatured?: boolean
+  showcaseBadge?: ProductShowcaseBadge
   inventoryQty: number
+  sizes?: string | null
+  hasVariants?: boolean
+  createdAt?: string
 }
 
 interface CollectionContentProps {
   collection: {
     name: string
-    nameEs: string
+    nameEs?: string
     description: string
-    descriptionEs: string
+    descriptionEs?: string
   }
   products: Product[]
   locale?: string
@@ -52,12 +58,6 @@ interface CollectionContentProps {
 const categories = ['all', 'rings', 'chains', 'bracelets', 'earrings', 'necklaces']
 const metalTypes = ['all', 'gold', 'silver', 'platinum']
 const stoneTypes = ['all', 'natural', 'lab', 'none']
-const sortOptions = [
-  { value: 'featured', label: 'Featured' },
-  { value: 'newest', label: 'Newest' },
-  { value: 'price-asc', label: 'Price: Low to High' },
-  { value: 'price-desc', label: 'Price: High to Low' },
-]
 
 export function CollectionContent({ collection, products }: CollectionContentProps) {
   const { t, locale } = useTranslation()
@@ -67,8 +67,19 @@ export function CollectionContent({ collection, products }: CollectionContentPro
   const [filterMetal, setFilterMetal] = useState('all')
   const [filterStone, setFilterStone] = useState('all')
 
-  const displayName = locale === 'es' ? collection.nameEs : collection.name
-  const displayDescription = locale === 'es' ? collection.descriptionEs : collection.description
+  const sortOptions = [
+    { value: 'featured', label: t('search.sortOptions.featured') },
+    { value: 'newest', label: t('search.sortOptions.newest') },
+    { value: 'price-asc', label: t('search.sortOptions.priceAsc') },
+    { value: 'price-desc', label: t('search.sortOptions.priceDesc') },
+  ]
+
+  const displayName =
+    locale === 'es' ? collection.nameEs || collection.name : collection.name
+  const displayDescription =
+    locale === 'es'
+      ? collection.descriptionEs || collection.description
+      : collection.description
 
   // Filter products
   let filteredProducts = [...products]
@@ -89,11 +100,17 @@ export function CollectionContent({ collection, products }: CollectionContentPro
     )
   }
 
-  // Sort products
+  // Sort products (default 'featured' preserves curated M&G Picks + Best Sellers ranking order)
   if (sortBy === 'price-asc') {
     filteredProducts.sort((a, b) => a.price - b.price)
   } else if (sortBy === 'price-desc') {
     filteredProducts.sort((a, b) => b.price - a.price)
+  } else if (sortBy === 'newest') {
+    filteredProducts.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      return timeB - timeA
+    })
   }
 
   const activeFiltersCount = [filterCategory, filterMetal, filterStone].filter(

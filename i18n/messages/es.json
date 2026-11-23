@@ -65,7 +65,15 @@
   },
   "bestSellers": {
     "title": "Más Vendidos",
-    "subtitle": "Nuestras piezas más amadas"
+    "subtitle": "Nuestras piezas más amadas",
+    "mgPicksTitle": "Selección M&G",
+    "mgPicksSubtitle": "Piezas destacadas elegidas personalmente por M&G Jewelry",
+    "hybridSubtitle": "Selección M&G y las piezas más vendidas por nuestros clientes",
+    "featuredProducts": "Productos Destacados",
+    "featuredFallbackSubtitle": "Explora nuestra colección curada de alta joyería",
+    "unitsSold": "Unidades Vendidas",
+    "badgeBestSeller": "Más Vendido",
+    "badgeMgPick": "Selección M&G"
   },
   "whiteGlove": {
     "title": "Servicio White-Glove Personal de Joyería",

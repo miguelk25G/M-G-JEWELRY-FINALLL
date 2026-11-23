@@ -13,6 +13,7 @@ import { useCartStore } from '@/lib/store/cart-store'
 import { useTranslation } from '@/i18n/locale-context'
 import { formatPrice } from '@/lib/format'
 import { getStorefrontStockState, parseImagesList, parseStringList } from '@/lib/inventory'
+import type { ProductShowcaseBadge } from '@/lib/best-sellers'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -30,8 +31,11 @@ interface ProductCardProps {
     karat?: string | null
     stoneType: string
     isBestSeller?: boolean
+    isFeatured?: boolean
+    showcaseBadge?: ProductShowcaseBadge
     inventoryQty: number
     sizes?: string | null
+    hasVariants?: boolean
   }
   className?: string
 }
@@ -51,7 +55,14 @@ export function ProductCard({ product, className }: ProductCardProps) {
   const isLowStock = stockState.isLowStock
   const isOutOfStock = stockState.isOutOfStock
   const favorite = isFavorite(product.id)
-  const requiresSizeSelection = parseStringList(product.sizes).length > 0
+  const requiresSizeSelection =
+    Boolean(product.hasVariants) || parseStringList(product.sizes).length > 0
+  const showcaseBadge: ProductShowcaseBadge =
+    product.showcaseBadge !== undefined
+      ? product.showcaseBadge
+      : product.isBestSeller
+      ? 'best_seller'
+      : 'none'
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -117,9 +128,17 @@ export function ProductCard({ product, className }: ProductCardProps) {
                 {locale === 'es' ? 'Oferta' : 'Sale'}
               </Badge>
             )}
-            {product.isBestSeller && (
+            {showcaseBadge === 'best_seller' && (
               <Badge variant="secondary" className="text-xs">
-                {locale === 'es' ? 'Más Vendido' : 'Best Seller'}
+                {t('bestSellers.badgeBestSeller')}
+              </Badge>
+            )}
+            {showcaseBadge === 'mg_pick' && (
+              <Badge
+                variant="outline"
+                className="border-amber-500/50 bg-background/90 text-amber-300 backdrop-blur-xs text-xs"
+              >
+                {t('bestSellers.badgeMgPick')}
               </Badge>
             )}
             {isLowStock && (

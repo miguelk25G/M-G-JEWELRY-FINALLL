@@ -10,13 +10,20 @@ export type AdminActionResult =
   | { success: true; message?: string; status?: string; error?: undefined }
   | { success: false; error: string; status?: string }
 
+function revalidateOrderAndSalesPaths() {
+  revalidatePath("/admin/orders")
+  revalidatePath("/admin/best-sellers")
+  revalidatePath("/")
+  revalidatePath("/collections/best-sellers")
+}
+
 // Server actions invoked by Next.js Admin interface
 export async function updateOrderStatus(orderId: string, status: string): Promise<AdminActionResult> {
   try {
     await requireAdminSession()
     const service = createAdminOrderService(db, getStripe())
     await service.updateOrderStatus(orderId, status)
-    revalidatePath("/admin/orders")
+    revalidateOrderAndSalesPaths()
     return { success: true }
   } catch (error: any) {
     console.error("Failed to update status:", error)
@@ -29,7 +36,7 @@ export async function markOrderAsPaid(orderId: string, amount: number): Promise<
     await requireAdminSession()
     const service = createAdminOrderService(db, getStripe())
     await service.markOrderAsPaid(orderId, amount)
-    revalidatePath("/admin/orders")
+    revalidateOrderAndSalesPaths()
     return { success: true }
   } catch (error: any) {
     console.error("Failed to mark as paid:", error)
@@ -42,7 +49,7 @@ export async function syncOrderPaymentWithStripe(orderId: string): Promise<Admin
     await requireAdminSession()
     const service = createAdminOrderService(db, getStripe())
     const res = await service.syncOrderPaymentWithStripe(orderId)
-    revalidatePath("/admin/orders")
+    revalidateOrderAndSalesPaths()
     return {
       success: true,
       message: res.message,

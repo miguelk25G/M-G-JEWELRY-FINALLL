@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { ProductDetail } from './product-detail'
 import { db } from '@/lib/db'
 import { createAdminProductService } from '@/lib/admin-products'
+import { createBestSellersService } from '@/lib/best-sellers'
 import { normalizeVariantSkusMap, resolveRealProductSku } from '@/lib/inventory'
 
 export const dynamic = 'force-dynamic'
@@ -72,15 +73,22 @@ export default async function ProductPage({ params }: Props) {
     metaStore
   )
 
-  // Get related products (same category, excluding current)
-  const relatedDbProducts = await db.product.findMany({
-    where: {
-      category: { equals: product.category, mode: 'insensitive' },
-      id: { not: product.id },
-      isActive: true,
-    },
-    take: 4,
-  })
+  const bestSellersService = createBestSellersService(db)
+
+  // Get related products (same category, excluding current) and storefront badge map
+  const [relatedDbProducts, badgeMap] = await Promise.all([
+    db.product.findMany({
+      where: {
+        category: { equals: product.category, mode: 'insensitive' },
+        id: { not: product.id },
+        isActive: true,
+      },
+      take: 4,
+    }),
+    bestSellersService.getProductBadgesMap(),
+  ])
+
+  const productBadge = badgeMap[product.id] || 'none'
 
   // Format products
   const formattedProduct = {
@@ -98,15 +106,20 @@ export default async function ProductPage({ params }: Props) {
     hasVariants,
     variantType,
     variants,
+    showcaseBadge: productBadge,
+    isBestSeller: productBadge === 'best_seller',
   }
 
   const formattedRelated = relatedDbProducts.map((p) => {
     const relMeta = metaStore.products[p.id] || {}
+    const relBadge = badgeMap[p.id] || 'none'
     return {
       ...p,
       nameEs: p.nameEs || p.name,
       karat: relMeta.material || p.karat || '',
       metalType: relMeta.metalColor || p.metalType,
+      showcaseBadge: relBadge,
+      isBestSeller: relBadge === 'best_seller',
     }
   })
 

@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "start": "next start",
     "test:payments": "node --import tsx --test scripts/test-payments.ts scripts/test-payments-postgres.ts",
+    "test:best-sellers": "node --import tsx --test scripts/test-best-sellers.ts",
     "db:migrate": "node scripts/with-env.js prisma db execute --file prisma/production-migration.sql --schema prisma/schema.prisma"
   },
   "dependencies": {

@@ -22,6 +22,7 @@ import {
   resolveActiveProductSku,
   resolveRealProductSku,
 } from '@/lib/inventory'
+import type { ProductShowcaseBadge } from '@/lib/best-sellers'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -44,6 +45,7 @@ interface Product {
   images: string
   isFeatured: boolean
   isBestSeller: boolean
+  showcaseBadge?: ProductShowcaseBadge
   inventoryQty: number
   lowStockThreshold?: number
   weight?: number | null
@@ -69,6 +71,7 @@ interface RelatedProduct {
   karat: string | null
   stoneType: string
   isBestSeller: boolean
+  showcaseBadge?: ProductShowcaseBadge
   inventoryQty: number
 }
 
@@ -327,16 +330,27 @@ export function ProductDetail({ product, relatedProducts }: ProductDetailProps) 
                 className="object-cover"
                 priority
               />
-              {isOnSale && (
-                <Badge variant="destructive" className="absolute left-4 top-4">
-                  {locale === 'es' ? 'Oferta' : 'Sale'}
-                </Badge>
-              )}
-              {product.isBestSeller && (
-                <Badge variant="secondary" className="absolute left-4 top-12">
-                  {locale === 'es' ? 'Más Vendido' : 'Best Seller'}
-                </Badge>
-              )}
+              <div className="absolute left-4 top-4 flex flex-col gap-1.5">
+                {isOnSale && (
+                  <Badge variant="destructive">
+                    {locale === 'es' ? 'Oferta' : 'Sale'}
+                  </Badge>
+                )}
+                {(product.showcaseBadge ?? (product.isBestSeller ? 'best_seller' : 'none')) ===
+                  'best_seller' && (
+                  <Badge variant="secondary">
+                    {t('bestSellers.badgeBestSeller')}
+                  </Badge>
+                )}
+                {product.showcaseBadge === 'mg_pick' && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/50 bg-background/90 text-amber-300 backdrop-blur-xs"
+                  >
+                    {t('bestSellers.badgeMgPick')}
+                  </Badge>
+                )}
+              </div>
             </div>
 
             {/* Thumbnail Gallery */}

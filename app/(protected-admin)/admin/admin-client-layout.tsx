@@ -21,6 +21,7 @@ import {
   Tag,
   FolderOpen,
   Sparkles,
+  Award,
 } from "lucide-react"
 
 export default function AdminClientLayout({
@@ -36,6 +37,7 @@ export default function AdminClientLayout({
   const sidebarItems = [
     { href: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/admin/products", icon: Package, label: "Products" },
+    { href: "/admin/best-sellers", icon: Award, label: "Best Sellers & Picks" },
     { href: "/admin/categories", icon: FolderOpen, label: "Categories" },
     { href: "/admin/orders", icon: ShoppingCart, label: "Orders" },
     {

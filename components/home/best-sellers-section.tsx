@@ -4,6 +4,10 @@ import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { ProductCard } from '@/components/product/product-card'
 import { useTranslation } from '@/i18n/locale-context'
+import type {
+  ProductShowcaseBadge,
+  ShowcaseHeadingType,
+} from '@/lib/best-sellers'
 
 interface Product {
   id: string
@@ -18,17 +22,41 @@ interface Product {
   karat: string | null
   stoneType: string
   isBestSeller: boolean
+  isFeatured?: boolean
+  showcaseBadge?: ProductShowcaseBadge
   inventoryQty: number
+  sizes?: string | null
+  hasVariants?: boolean
 }
 
 interface BestSellersSectionProps {
   products: Product[]
+  headingType?: ShowcaseHeadingType
 }
 
-export function BestSellersSection({ products }: BestSellersSectionProps) {
+export function BestSellersSection({
+  products,
+  headingType = 'best_sellers',
+}: BestSellersSectionProps) {
   const { t } = useTranslation()
 
   if (products.length === 0) return null
+
+  const title =
+    headingType === 'mg_picks'
+      ? t('bestSellers.mgPicksTitle')
+      : headingType === 'featured_fallback'
+      ? t('bestSellers.featuredProducts')
+      : t('bestSellers.title')
+
+  const subtitle =
+    headingType === 'mg_picks'
+      ? t('bestSellers.mgPicksSubtitle')
+      : headingType === 'hybrid'
+      ? t('bestSellers.hybridSubtitle')
+      : headingType === 'featured_fallback'
+      ? t('bestSellers.featuredFallbackSubtitle')
+      : t('bestSellers.subtitle')
 
   return (
     <section className="py-20 lg:py-28">
@@ -37,10 +65,10 @@ export function BestSellersSection({ products }: BestSellersSectionProps) {
         <div className="flex items-end justify-between">
           <div>
             <h2 className="font-serif text-3xl font-bold text-foreground lg:text-4xl">
-              {t('bestSellers.title')}
+              {title}
             </h2>
             <p className="mt-2 text-muted-foreground">
-              {t('bestSellers.subtitle')}
+              {subtitle}
             </p>
           </div>
           <Link

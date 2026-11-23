@@ -65,7 +65,15 @@
   },
   "bestSellers": {
     "title": "Best Sellers",
-    "subtitle": "Our most loved pieces"
+    "subtitle": "Our most loved pieces",
+    "mgPicksTitle": "M&G Picks",
+    "mgPicksSubtitle": "Featured pieces hand-selected by M&G Jewelry",
+    "hybridSubtitle": "M&G Picks and our top-selling customer favorites",
+    "featuredProducts": "Featured Products",
+    "featuredFallbackSubtitle": "Explore our curated fine jewelry collection",
+    "unitsSold": "Units Sold",
+    "badgeBestSeller": "Best Seller",
+    "badgeMgPick": "M&G Pick"
   },
   "whiteGlove": {
     "title": "Personal Jewelry White-Glove",
