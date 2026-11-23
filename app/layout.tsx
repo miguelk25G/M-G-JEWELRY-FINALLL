@@ -8,6 +8,7 @@ import { Toaster } from 'sonner'
 import { LocaleProvider } from '@/i18n/locale-context'
 import { getMessages } from '@/i18n/get-messages'
 import { defaultLocale, type Locale } from '@/i18n/config'
+import { GoogleAnalyticsHead } from '@/components/analytics/google-analytics-head'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ['latin'] })
@@ -78,6 +79,9 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} className={playfair.variable}>
+      <head>
+        <GoogleAnalyticsHead />
+      </head>
       <body className="font-sans antialiased">
         <LocaleProvider locale={locale} messages={messages}>
           {children}

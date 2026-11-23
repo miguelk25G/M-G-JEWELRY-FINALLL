@@ -8,6 +8,7 @@ import { Logo } from '@/components/brand/logo'
 import { useTranslation } from '@/i18n/locale-context'
 import { LanguageSwitcher } from './language-switcher'
 import { BrandConfig } from '@/lib/config/brand'
+import { CookiePreferencesButton } from '@/components/analytics/cookie-preferences-button'
 
 export function Footer() {
   const { t } = useTranslation()
@@ -177,7 +178,7 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">
             {t('footer.copyright', { year: currentYear })}
           </p>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/policies/privacy"
               className="text-sm text-muted-foreground hover:text-foreground"
@@ -190,6 +191,7 @@ export function Footer() {
             >
               {t('footer.terms')}
             </Link>
+            <CookiePreferencesButton />
             <LanguageSwitcher />
           </div>
         </div>

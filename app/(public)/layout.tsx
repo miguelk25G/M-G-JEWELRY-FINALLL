@@ -3,6 +3,9 @@ import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { MessageCircle } from 'lucide-react'
 import { BrandConfig } from '@/lib/config/brand'
+import { PublicAnalyticsBridge } from '@/components/analytics/public-analytics-bridge'
+import { CookieConsentBanner } from '@/components/analytics/cookie-consent-banner'
+import { isGaEnabledForEnvironment, resolveGaMeasurementId } from '@/lib/analytics/config'
 
 export default function PublicLayout({
   children,
@@ -10,12 +13,16 @@ export default function PublicLayout({
   children: React.ReactNode
 }) {
   const waLink = `https://wa.me/${BrandConfig.CONTACT.whatsappNumber.replace(/\+/g, '')}`
+  const gaEnabled = isGaEnabledForEnvironment()
+  const gaMeasurementId = resolveGaMeasurementId()
 
   return (
     <div className="flex min-h-screen flex-col relative">
+      {gaEnabled && <PublicAnalyticsBridge measurementId={gaMeasurementId} />}
       <Header />
       <main className="flex-1">{children}</main>
       <Footer />
+      {gaEnabled && <CookieConsentBanner />}
       
       {/* Mobile-only Floating WhatsApp */}
       <a 
